@@ -1,0 +1,17 @@
+name = "findaminyan-bot"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+account_id = "0107ea037f865daaa8e1ebb3b7d678e9"
+
+[[kv_namespaces]]
+binding = "LOGS"
+id      = "1d3941d6681f423ba7ce5be9e093ea1f"
+
+# Secrets (set via: npx wrangler secret put SECRET_NAME)
+# FINDAMINYAN_EMAIL
+# FINDAMINYAN_PASSWORD
+# TWILIO_ACCOUNT_SID
+# TWILIO_AUTH_TOKEN
+# TWILIO_FROM_NUMBER
+# ADMIN_PHONE
+# LOGS_PASSWORD
