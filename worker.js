@@ -20,6 +20,14 @@ var worker_default = {
         return twimlResponse("Sorry, a system error occurred. Please try again shortly.");
       }
     }
+    if (pathname === "/checkup" && request.method === "POST") {
+      try {
+        return await handleSms(request, env);
+      } catch (err) {
+        console.error("Unhandled error:", err);
+        return twimlResponse("Sorry, a system error occurred. Please try again shortly.");
+      }
+    }
     if (pathname === "/logs") {
       return handleLogsPage(request, env);
     }
@@ -39,12 +47,20 @@ async function handleSms(request, env) {
   const fromNumber = params.From || "";
   const smsBody = (params.Body || "").trim();
   console.log(`[SMS] From: ${fromNumber} | Body: ${smsBody}`);
-  const parsed = parseSms(smsBody);
-  if (!parsed) {
-    console.log("[SMS] Could not parse message");
-    return twimlResponse(
-      "Hi! I couldn't read your message.\nPlease send it like:\n  2 men, 01/08/26-11/08/26, M7 1HW\nOr with distance: 20 miles, 2 men, 01/08/26-11/08/26, M7 1HW\n(number of men \xB7 dates \xB7 postcode)"
-    );
+
+  // Detect check-up modes
+  const isCheckExisting = /^check\s*up\s*existing\s*:/i.test(smsBody);
+  const isCheckNew = /^check\s*up\s*new\s*:/i.test(smsBody);
+  const isCheckUp = isCheckExisting || isCheckNew;
+
+  // Strip the check-up prefix before parsing
+  const bodyToParse = isCheckUp ? smsBody.replace(/^check\s*up\s*(existing|new)\s*:\s*/i, "") : smsBody;
+
+  const parsed = parseSms(bodyToParse, { requireMobile: !isCheckNew });
+  if (parsed.missing) {
+    const missing = parsed.missing.join(", ");
+    console.log(`[SMS] Missing fields: ${missing}`);
+    return twimlResponse(`Missing: ${missing}. Please resend with all required details.`);
   }
   const { numPeople, start, end, postcode, maxMiles, contactMobile } = parsed;
   const dateRange = `${displayDate(start)}-${displayDate(end)}`;
@@ -67,61 +83,81 @@ async function handleSms(request, env) {
   let senderMobile = fromNumber.startsWith("+44") ? "0" + fromNumber.slice(3) : fromNumber;
   const contactForSite = contactMobile || senderMobile;
   console.log(`[SMS] Contact for site: ${contactForSite}${contactMobile ? " (from SMS body)" : " (sender)"}`);
-  const searchRadius = Math.ceil(maxMiles * 1.5);
-  const nearbyDataPre = await searchNearby(cookies, lat, lng, start, end, searchRadius);
-  const { entries: preEntries } = countPeopleNearby(nearbyDataPre);
-  console.log(`[SMS] Pre-add nearby: ${preEntries.length} entries`);
-  const normMobile = senderMobile.replace(/\s/g, "");
-  const normFrom = fromNumber.replace(/\s/g, "");
-  const normContact = contactForSite.replace(/\s/g, "");
-  const normPostcode = postcode.replace(/\s/g, "").toUpperCase();
-  const isDuplicate = preEntries.some((e) => {
-    const p = (e.phone || "").replace(/\s/g, "");
-    const pc = (e.postcode || "").replace(/\s/g, "").toUpperCase();
-    return p && (p === normMobile || p === normFrom || p === normContact) && pc === normPostcode;
-  });
-  if (isDuplicate) {
-    console.log(`[SMS] Duplicate detected for ${senderMobile} \u2014 not adding`);
-    const dupReply = `Already registered: ${postcode} (${dateRange}). Pending review - admin will be in touch if there is a minyan!`;
-    await writeLog(env, {
-      id: Date.now() + "-" + Math.random().toString(36).slice(2, 7),
-      time: (/* @__PURE__ */ new Date()).toISOString(),
-      from: senderMobile,
-      body: smsBody,
+
+  // Change 1: search radius = maxMiles directly (no 1.5x multiplier)
+  const searchRadius = maxMiles;
+
+  // For check-ups: skip duplicate detection and skip addLocation
+  let rawEntries;
+  if (isCheckUp) {
+    console.log(`[SMS] Check-up mode: ${isCheckExisting ? "existing" : "new"} — skipping add`);
+    const nearbyData = await searchNearby(cookies, lat, lng, start, end, searchRadius);
+    const { entries } = countPeopleNearby(nearbyData);
+    rawEntries = entries;
+  } else {
+    // Normal registration flow
+    const nearbyDataPre = await searchNearby(cookies, lat, lng, start, end, searchRadius);
+    const { entries: preEntries } = countPeopleNearby(nearbyDataPre);
+    console.log(`[SMS] Pre-add nearby: ${preEntries.length} entries`);
+    const normMobile = senderMobile.replace(/\s/g, "");
+    const normFrom = fromNumber.replace(/\s/g, "");
+    const normContact = contactForSite.replace(/\s/g, "");
+    const normPostcode = postcode.replace(/\s/g, "").toUpperCase();
+    // Change 4: duplicate = same phone OR same postcode
+    const isDuplicate = preEntries.some((e) => {
+      const p = (e.phone || "").replace(/\s/g, "");
+      const pc = (e.postcode || "").replace(/\s/g, "").toUpperCase();
+      const phoneMatch = p && (p === normMobile || p === normFrom || p === normContact);
+      const postcodeMatch = pc === normPostcode;
+      return phoneMatch || postcodeMatch;
+    });
+    if (isDuplicate) {
+      console.log(`[SMS] Duplicate detected for ${senderMobile} \u2014 not adding`);
+      const dupReply = `Already registered: ${postcode} (${dateRange}). Pending review - admin will be in touch if there is a minyan!`;
+      await writeLog(env, {
+        id: Date.now() + "-" + Math.random().toString(36).slice(2, 7),
+        time: (/* @__PURE__ */ new Date()).toISOString(),
+        from: senderMobile,
+        body: smsBody,
+        postcode,
+        dates: dateRange,
+        people: numPeople,
+        nearby: preEntries.reduce((s, e) => s + e.people, 0),
+        status: "DUPLICATE \u2014 PENDING",
+        reply: dupReply,
+        lat,
+        lng,
+        address,
+        startIso: start.toISOString(),
+        endIso: end.toISOString(),
+        mobile: senderMobile
+      });
+      return twimlResponse(dupReply);
+    }
+    const addResult = await addLocation(
+      cookies,
       postcode,
-      dates: dateRange,
-      people: numPeople,
-      nearby: preEntries.reduce((s, e) => s + e.people, 0),
-      status: "DUPLICATE \u2014 PENDING",
-      reply: dupReply,
+      numPeople,
+      start,
+      end,
       lat,
       lng,
       address,
-      startIso: start.toISOString(),
-      endIso: end.toISOString(),
-      mobile: senderMobile
-    });
-    return twimlResponse(dupReply);
+      contactForSite,
+      env.FINDAMINYAN_EMAIL
+    );
+    console.log(`[SMS] addLocation response: ${addResult}`);
+    const nearbyDataPost = await searchNearby(cookies, lat, lng, start, end, searchRadius);
+    const { entries } = countPeopleNearby(nearbyDataPost);
+    rawEntries = entries;
   }
-  const addResult = await addLocation(
-    cookies,
-    postcode,
-    numPeople,
-    start,
-    end,
-    lat,
-    lng,
-    address,
-    contactForSite,
-    env.FINDAMINYAN_EMAIL
-  );
-  console.log(`[SMS] addLocation response: ${addResult}`);
-  const nearbyData = await searchNearby(cookies, lat, lng, start, end, searchRadius);
-  const { entries: rawEntries } = countPeopleNearby(nearbyData);
   console.log(`[SMS] Post-add nearby: ${rawEntries.length} entries`);
+  const normMobileFilter = senderMobile.replace(/\s/g, "");
+  const normFromFilter = fromNumber.replace(/\s/g, "");
+  const normContactFilter = contactForSite.replace(/\s/g, "");
   const otherEntries = rawEntries.filter((e) => {
     const p = (e.phone || "").replace(/\s/g, "");
-    return p !== normMobile && p !== normContact && p !== normFrom;
+    return p !== normMobileFilter && p !== normContactFilter && p !== normFromFilter;
   });
   let enriched = otherEntries;
   const destCoords = otherEntries.map((e) => ({ lat: e.lat, lng: e.lng }));
@@ -151,6 +187,7 @@ async function handleSms(request, env) {
   } else {
     reply = `We have added your details - ${postcode}, ${numPeople} ${numPeople === 1 ? "man" : "men"}, ${dateRange}. ${others} other${others === 1 ? "" : "s"} nearby, ${total} in total - check back again in 1-2 wks! Findaminyan`;
   }
+  const logStatus = isCheckExisting ? `CHECK \u2014 EXISTING` : isCheckNew ? `CHECK \u2014 NEW` : resultStatus;
   await writeLog(env, {
     id: Date.now() + "-" + Math.random().toString(36).slice(2, 7),
     time: (/* @__PURE__ */ new Date()).toISOString(),
@@ -160,7 +197,7 @@ async function handleSms(request, env) {
     dates: dateRange,
     people: numPeople,
     nearby: total,
-    status: resultStatus,
+    status: logStatus,
     reply
   });
   return twimlResponse(reply);
@@ -196,23 +233,40 @@ function escXml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 }
 __name(escXml, "escXml");
-function parseSms(text) {
+function parseSms(text, { requireMobile = true } = {}) {
+  const missing = [];
+
   const peopleMatch = text.match(/(\d+)\s*(?:men?|people?|males?)?/i);
-  const numPeople = peopleMatch ? Math.min(parseInt(peopleMatch[1]), 9) : 1;
+  const numPeople = peopleMatch ? Math.min(parseInt(peopleMatch[1]), 9) : null;
+  if (!numPeople) missing.push("number of men");
+
   const dateMatch = text.match(
     /(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})\s*(?:[-–—]|to)\s*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})/i
   );
-  if (!dateMatch) return null;
-  const start = parseDate(dateMatch[1]);
-  const end = parseDate(dateMatch[2]);
-  if (!start || !end) return null;
+  const start = dateMatch ? parseDate(dateMatch[1]) : null;
+  const end = dateMatch ? parseDate(dateMatch[2]) : null;
+  if (!start || !end) missing.push("dates");
+
   const pcMatch = text.match(/\b([A-Z]{1,2}\d[0-9A-Z]?\s*\d[A-Z]{2})\b/i);
-  if (!pcMatch) return null;
+  if (!pcMatch) missing.push("postcode");
+
   const distMatch = text.match(/(\d+)\s*miles?\b/i);
   const maxMiles = distMatch ? Math.min(parseInt(distMatch[1]), 50) : 15;
+
   const mobileMatch = text.match(/(?<![\d\/])((?:\+44|0)[0-9]{9,10})(?![\d\/])/i);
   const contactMobile = mobileMatch ? mobileMatch[1].replace(/\s/g, "") : null;
-  return { numPeople, start, end, postcode: pcMatch[1].toUpperCase().trim(), maxMiles, contactMobile };
+  if (requireMobile && !contactMobile) missing.push("mobile number");
+
+  if (missing.length > 0) return { missing };
+
+  return {
+    numPeople,
+    start,
+    end,
+    postcode: pcMatch[1].toUpperCase().trim(),
+    maxMiles,
+    contactMobile
+  };
 }
 __name(parseSms, "parseSms");
 function parseDate(s) {
