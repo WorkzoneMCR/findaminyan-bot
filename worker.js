@@ -171,11 +171,17 @@ async function handleSms(request, env) {
   let reply;
   const resultStatus = total >= MINYAN ? "MINYAN POSSIBLE" : total >= 8 ? "Getting close" : "Not enough yet";
   console.log(`[SMS] Result: ${resultStatus} (${total} people)`);
+  const requesterDays = Math.round((end.getTime() - start.getTime()) / 864e5) + 1;
   if (total >= 8) {
     const contactLines = enriched.slice(0, 8).map((e) => {
-      const dist = e.driveMiles != null ? ` (${Math.round(e.driveMiles)}mi driving)` : "";
-      const manmen = e.people === 1 ? "1 man" : `${e.people} men`;
-      return `- ${manmen} - ${e.postcode}${dist} ${e.phone}`.trim();
+      const dist    = e.driveMiles != null ? ` (${Math.round(e.driveMiles)}mi driving)` : "";
+      const manmen  = e.people === 1 ? "1 man" : `${e.people} men`;
+      const eStart  = parseApiDate(e.startDate);
+      const eEnd    = parseApiDate(e.endDate);
+      const dates   = eStart && eEnd ? ` ${shortDate(eStart)}-${shortDate(eEnd)}` : "";
+      const overlap = overlapDays(start, end, eStart, eEnd);
+      const days    = overlap !== null ? ` (${overlap}/${requesterDays} days)` : "";
+      return `- ${manmen}${dates}${days} - ${e.postcode}${dist} ${e.phone}`.trim();
     });
     const minyanLine = total >= MINYAN ? "\nMinyan alert - you have a minyan!" : `\nMinyan alert - ${MINYAN - total} more for a minyan!`;
     reply = `There are ${total} (including yours) near ${postcode} for ${dateRange}:\n` + contactLines.join("\n") + `\nCheck back in 1-2 wks for more info! Findaminyan.` + minyanLine;
@@ -269,6 +275,28 @@ function parseSms(text, { requireMobile = true } = {}) {
   };
 }
 __name(parseSms, "parseSms");
+function parseApiDate(s) {
+  if (!s) return null;
+  const MONTH_MAP = { Jan:0, Feb:1, Mar:2, Apr:3, May:4, Jun:5, Jul:6, Aug:7, Sep:8, Oct:9, Nov:10, Dec:11 };
+  const m = String(s).trim().match(/(\d{1,2})\s+([A-Za-z]{3})\s+(\d{2,4})/);
+  if (!m) return null;
+  const y = parseInt(m[3]) < 100 ? 2000 + parseInt(m[3]) : parseInt(m[3]);
+  return new Date(Date.UTC(y, MONTH_MAP[m[2]], parseInt(m[1])));
+}
+__name(parseApiDate, "parseApiDate");
+function shortDate(d) {
+  if (!d) return "";
+  return `${String(d.getUTCDate()).padStart(2,"0")}/${String(d.getUTCMonth()+1).padStart(2,"0")}`;
+}
+__name(shortDate, "shortDate");
+function overlapDays(aStart, aEnd, bStart, bEnd) {
+  if (!aStart || !aEnd || !bStart || !bEnd) return null;
+  const oStart = Math.max(aStart.getTime(), bStart.getTime());
+  const oEnd   = Math.min(aEnd.getTime(),   bEnd.getTime());
+  if (oEnd < oStart) return 0;
+  return Math.round((oEnd - oStart) / 864e5) + 1;
+}
+__name(overlapDays, "overlapDays");
 function parseDate(s) {
   s = s.replace(/[.\-]/g, "/");
   const parts = s.split("/");
@@ -430,7 +458,9 @@ function countPeopleNearby(data) {
           phone: loc.Mobile || loc.Contact || "",
           email: loc.Email || "",
           lat: parseFloat(loc.Latitude) || null,
-          lng: parseFloat(loc.Longitude) || null
+          lng: parseFloat(loc.Longitude) || null,
+          startDate: loc.StartDate || "",
+          endDate: loc.EndDate || ""
         });
       }
     }
