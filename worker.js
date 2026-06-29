@@ -179,7 +179,7 @@ async function handleSms(request, env) {
   console.log(`[SMS] Result: ${resultStatus} (${total} people)`);
   const requesterDays = Math.round((end.getTime() - start.getTime()) / 864e5) + 1;
   if (total >= 8) {
-    const contactLines = enriched.slice(0, 8).map((e) => {
+    const contactLines = enriched.slice(0, 8).map((e, i) => {
       const dist    = e.driveMiles != null ? ` (${Math.round(e.driveMiles)}mi driving)` : "";
       const manmen  = e.people === 1 ? "1 man" : `${e.people} men`;
       const eStart  = parseApiDate(e.startDate);
@@ -187,7 +187,8 @@ async function handleSms(request, env) {
       const dates   = eStart && eEnd ? ` ${shortDate(eStart)}-${shortDate(eEnd)}` : "";
       const overlap = overlapDays(start, end, eStart, eEnd);
       const days    = overlap !== null ? ` (${overlap}/${requesterDays} days)` : "";
-      return `- ${manmen}${dates}${days} - ${e.postcode}${dist} ${e.phone}`.trim();
+      const phone   = e.phone ? ` ${fmtPhone(e.phone)}` : "";
+      return `Location ${i + 1} - ${manmen}${dates}${days} - ${e.postcode}${dist}${phone}`.trim();
     });
     const minyanLine = total >= MINYAN ? "\nMinyan alert - you have a minyan!" : `\nMinyan alert - ${MINYAN - total} more for a minyan!`;
     reply = `There are ${total} (including yours) near ${postcode} for ${dateRange}:\n` + contactLines.join("\n") + `\nCheck back in 1-2 wks for more info! Findaminyan.` + minyanLine;
@@ -293,6 +294,14 @@ function shortDate(d) {
   return `${String(d.getUTCDate()).padStart(2,"0")}/${String(d.getUTCMonth()+1).padStart(2,"0")}`;
 }
 __name(shortDate, "shortDate");
+function fmtPhone(p) {
+  const s = String(p).trim();
+  if (!s) return "";
+  if (s.startsWith("+447") || s.startsWith("+44 7")) return `Mob ${s}`;
+  if (s.startsWith("07")) return `Mob ${s}`;
+  return `Tel: ${s}`;
+}
+__name(fmtPhone, "fmtPhone");
 function overlapDays(aStart, aEnd, bStart, bEnd) {
   if (!aStart || !aEnd || !bStart || !bEnd) return null;
   const oStart = Math.max(aStart.getTime(), bStart.getTime());
