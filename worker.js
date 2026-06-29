@@ -180,23 +180,33 @@ async function handleSms(request, env) {
   const requesterDays = Math.round((end.getTime() - start.getTime()) / 864e5) + 1;
   if (total >= 8) {
     const contactLines = enriched.slice(0, 5).map((e, i) => {
-      const dist    = e.driveMiles != null ? `, ${Math.round(e.driveMiles)}mi driving,` : "";
-      const manmen  = e.people === 1 ? "1man" : `${e.people}men`;
+      const dist    = e.driveMiles != null ? ` (${Math.round(e.driveMiles)}mi drive)` : "";
+      const manmen  = e.people === 1 ? "1 man" : `${e.people} men`;
       const eStart  = parseApiDate(e.startDate);
       const eEnd    = parseApiDate(e.endDate);
       const dates   = eStart && eEnd ? ` ${shortDate(eStart)}-${shortDate(eEnd)}` : "";
-      const phone   = e.phone ? ` ${fmtPhone(e.phone)}` : "";
+      const phone   = e.phone ? ` No. ${e.phone.trim()}` : "";
       return `${i + 1}) ${manmen}${dates} - ${e.postcode}${dist}${phone}.`.trim();
     });
     const minyanLine = total >= MINYAN ? " MINYAN!" : "";
-    reply = `${total} near ${postcode} ${dateRange}:\n` + contactLines.join("\n") + `\nCheck back 1-2wks. FindAMinyan.${minyanLine}`;
+    const includingYou = isCheckUp ? "" : " (including you)";
+    const headerCount = isCheckUp ? others : total;
+    reply = `There are ${headerCount} people near '${postcode}' for ${dateRange}${includingYou}.\nHere are the details of those nearby\n` + contactLines.join("\n") + `\nCheck back 1-2wks. FindAMinyan.${minyanLine}`;
     if (total >= MINYAN) {
       await notifyAdmin(env, total, postcode, start, end, enriched, senderMobile);
     }
   } else if (others === 0) {
-    reply = `We have added your details - ${postcode}, ${numPeople} ${numPeople === 1 ? "man" : "men"}, ${dateRange}. No one else is nearby yet for a minyan - check back again in 1-2 wks! Findaminyan`;
+    if (isCheckUp) {
+      reply = `No one else is registered nearby for those dates yet - check back in 1-2 wks! FindAMinyan`;
+    } else {
+      reply = `We have added your details - ${postcode}, ${numPeople} ${numPeople === 1 ? "man" : "men"}, ${dateRange}. No one else is nearby yet for a minyan - check back again in 1-2 wks! Findaminyan`;
+    }
   } else {
-    reply = `We have added your details - ${postcode}, ${numPeople} ${numPeople === 1 ? "man" : "men"}, ${dateRange}. There are ${others} other${others === 1 ? "" : "s"} nearby, ${total} in total, but not enough yet for a minyan - check back again in 1-2 wks! Findaminyan`;
+    if (isCheckUp) {
+      reply = `There are ${others} other${others === 1 ? "" : "s"} nearby for those dates, ${total} in total, but not enough yet for a minyan - check back in 1-2 wks! FindAMinyan`;
+    } else {
+      reply = `We have added your details - ${postcode}, ${numPeople} ${numPeople === 1 ? "man" : "men"}, ${dateRange}. There are ${others} other${others === 1 ? "" : "s"} nearby, ${total} in total, but not enough yet for a minyan - check back again in 1-2 wks! Findaminyan`;
+    }
   }
   const logStatus = isCheckExisting ? `CHECK \u2014 EXISTING` : isCheckNew ? `CHECK \u2014 NEW` : resultStatus;
   await writeLog(env, {
