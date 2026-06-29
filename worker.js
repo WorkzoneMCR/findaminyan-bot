@@ -242,9 +242,9 @@ __name(escXml, "escXml");
 function parseSms(text, { requireMobile = true } = {}) {
   const missing = [];
 
-  const peopleMatch = text.match(/(\d+)\s*(?:men?|people?|males?)?/i);
+  const peopleMatch = text.match(/(\d+)\s*(?:men?|man|people?|person|males?)\b/i);
   const numPeople = peopleMatch ? Math.min(parseInt(peopleMatch[1]), 9) : null;
-  if (!numPeople) missing.push("number of men");
+  if (!numPeople) missing.push("number of men (e.g. '2 men')");
 
   const dateMatch = text.match(
     /(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})\s*(?:[-–—]|to)\s*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})/i
