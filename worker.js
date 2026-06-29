@@ -193,8 +193,8 @@ async function handleSms(request, env) {
   let enriched = otherEntries;
   const destCoords = otherEntries.map((e) => ({ lat: e.lat, lng: e.lng }));
   if (destCoords.some((d) => d.lat && d.lng)) {
-    const driveMiles = await getDrivingDistancesOSRM(lat, lng, destCoords);
-    enriched = otherEntries.map((e, i) => ({ ...e, driveMiles: driveMiles[i] })).filter((e) => e.driveMiles == null || e.driveMiles <= maxMiles);
+    const driveTimes = await getDrivingDistancesOSRM(lat, lng, destCoords);
+    enriched = otherEntries.map((e, i) => ({ ...e, driveMiles: driveTimes[i]?.miles ?? null, driveMinutes: driveTimes[i]?.minutes ?? null })).filter((e) => e.driveMiles == null || e.driveMiles <= maxMiles);
   }
   const total = numPeople + enriched.reduce((s, e) => s + e.people, 0);
   const others = total - numPeople;
@@ -205,7 +205,7 @@ async function handleSms(request, env) {
   const requesterDays = Math.round((end.getTime() - start.getTime()) / 864e5) + 1;
   if (total >= 8) {
     const contactLines = enriched.slice(0, 5).map((e, i) => {
-      const dist    = e.driveMiles != null ? ` (${Math.round(e.driveMiles)}mile drive)` : "";
+      const dist    = e.driveMinutes != null ? ` (${Math.round(e.driveMinutes)}min drive)` : "";
       const manmen  = e.people === 1 ? "1 man" : `${e.people} men`;
       const eStart  = parseApiDate(e.startDate);
       const eEnd    = parseApiDate(e.endDate);
@@ -391,14 +391,17 @@ async function getDrivingDistancesOSRM(originLat, originLng, destinations) {
       ...valid.map((d) => `${d.lng},${d.lat}`)
     ].join(";");
     const resp = await fetch(
-      `https://router.project-osrm.org/table/v1/driving/${coords}?sources=0&annotations=distance`,
+      `https://router.project-osrm.org/table/v1/driving/${coords}?sources=0&annotations=duration,distance`,
       { signal: AbortSignal.timeout(6e3) }
     );
     const data = await resp.json();
-    const raw = ((data.distances || [[]])[0] || []).slice(1);
+    const rawDist = ((data.distances || [[]])[0] || []).slice(1);
+    const rawDur  = ((data.durations || [[]])[0] || []).slice(1);
     const result = destinations.map(() => null);
     valid.forEach((d, j) => {
-      result[d.i] = raw[j] != null ? raw[j] / 1609.34 : null;
+      const miles = rawDist[j] != null ? rawDist[j] / 1609.34 : null;
+      const minutes = rawDur[j] != null ? rawDur[j] / 60 : null;
+      result[d.i] = { miles, minutes };
     });
     return result;
   } catch (e) {
@@ -523,7 +526,7 @@ async function notifyAdmin(env, total, postcode, start, end, entries, requesterN
     `Req: ${requesterNumber}`,
     ...entries.slice(0, 8).map((e) => {
       const contact = e.phone || e.email || "no contact";
-      const dist = e.driveMiles != null ? ` (${Math.round(e.driveMiles)}mi)` : "";
+      const dist = e.driveMinutes != null ? ` (${Math.round(e.driveMinutes)}min)` : "";
       const manmen = e.people === 1 ? "1 man" : `${e.people} men`;
       return `- ${manmen} ${e.postcode}${dist} ${contact}`;
     })
