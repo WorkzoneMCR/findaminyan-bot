@@ -188,7 +188,7 @@ async function handleSms(request, env) {
       const phone   = e.phone ? ` ${fmtPhone(e.phone)}` : "";
       return `${i + 1}. ${manmen}${dates} - ${e.postcode}${dist}${phone}`.trim();
     });
-    const minyanLine = total >= MINYAN ? " MINYAN!" : ` ${MINYAN - total} more needed.`;
+    const minyanLine = total >= MINYAN ? " MINYAN!" : "";
     reply = `${total} near ${postcode} ${dateRange}:\n` + contactLines.join("\n") + `\nCheck back 1-2wks. FindAMinyan.${minyanLine}`;
     if (total >= MINYAN) {
       await notifyAdmin(env, total, postcode, start, end, enriched, senderMobile);
