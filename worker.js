@@ -180,7 +180,7 @@ async function handleSms(request, env) {
   const requesterDays = Math.round((end.getTime() - start.getTime()) / 864e5) + 1;
   if (total >= 8) {
     const contactLines = enriched.slice(0, 5).map((e, i) => {
-      const dist    = e.driveMiles != null ? ` (${Math.round(e.driveMiles)}mi drive)` : "";
+      const dist    = e.driveMiles != null ? ` (${Math.round(e.driveMiles)}mile drive)` : "";
       const manmen  = e.people === 1 ? "1 man" : `${e.people} men`;
       const eStart  = parseApiDate(e.startDate);
       const eEnd    = parseApiDate(e.endDate);
