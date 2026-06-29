@@ -7,3 +7,5 @@ __pycache__/
 .wrangler/
 node_modules/
 *.log
+*.code-workspace
+f.a.m
