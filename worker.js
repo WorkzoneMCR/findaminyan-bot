@@ -180,13 +180,13 @@ async function handleSms(request, env) {
   const requesterDays = Math.round((end.getTime() - start.getTime()) / 864e5) + 1;
   if (total >= 8) {
     const contactLines = enriched.slice(0, 5).map((e, i) => {
-      const dist    = e.driveMiles != null ? ` ${Math.round(e.driveMiles)}mi` : "";
+      const dist    = e.driveMiles != null ? `, ${Math.round(e.driveMiles)}mi driving,` : "";
       const manmen  = e.people === 1 ? "1man" : `${e.people}men`;
       const eStart  = parseApiDate(e.startDate);
       const eEnd    = parseApiDate(e.endDate);
       const dates   = eStart && eEnd ? ` ${shortDate(eStart)}-${shortDate(eEnd)}` : "";
       const phone   = e.phone ? ` ${fmtPhone(e.phone)}` : "";
-      return `${i + 1}. ${manmen}${dates} - ${e.postcode}${dist}${phone}`.trim();
+      return `${i + 1}) ${manmen}${dates} - ${e.postcode}${dist}${phone}.`.trim();
     });
     const minyanLine = total >= MINYAN ? " MINYAN!" : "";
     reply = `${total} near ${postcode} ${dateRange}:\n` + contactLines.join("\n") + `\nCheck back 1-2wks. FindAMinyan.${minyanLine}`;
