@@ -34,6 +34,9 @@ var worker_default = {
     if (pathname === "/review") {
       return handleReview(request, env);
     }
+    if (pathname === "/safelist") {
+      return handleSafelist(request, env);
+    }
     return new Response("Not Found", { status: 404 });
   }
 };
@@ -680,6 +683,48 @@ async function handleReview(request, env) {
   return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
 }
 __name(handleReview, "handleReview");
+async function handleSafelist(request, env) {
+  const url = new URL(request.url);
+  const provided = url.searchParams.get("key") || "";
+  const secret = env.LOGS_PASSWORD || "";
+  if (!secret || provided !== secret) {
+    return new Response("Forbidden", { status: 403 });
+  }
+  const number = url.searchParams.get("number") || "";
+  if (!number) {
+    return new Response(
+      `<!DOCTYPE html><html><body style="font-family:sans-serif;padding:2rem">
+        <h2>Add to Twilio Safe List</h2>
+        <form method="GET">
+          <input type="hidden" name="key" value="${escHtml(provided)}">
+          <label>Phone number (E.164, e.g. +447341454514):<br>
+          <input name="number" style="width:260px;padding:.4rem;margin:.5rem 0" placeholder="+447341454514"></label><br>
+          <button type="submit" style="padding:.5rem 1.2rem;background:#1e3a5f;color:#fff;border:none;border-radius:6px;cursor:pointer">Add to Safe List</button>
+        </form>
+      </body></html>`,
+      { status: 200, headers: { "Content-Type": "text/html" } }
+    );
+  }
+  const resp = await fetch("https://accounts.twilio.com/v1/SafeList/Numbers", {
+    method: "POST",
+    headers: {
+      "Authorization": "Basic " + btoa(`${env.TWILIO_ACCOUNT_SID}:${env.TWILIO_AUTH_TOKEN}`),
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body: new URLSearchParams({ PhoneNumber: number })
+  });
+  const body = await resp.json();
+  const ok = resp.status === 200 || resp.status === 201;
+  return new Response(
+    `<!DOCTYPE html><html><body style="font-family:sans-serif;padding:2rem">
+      <h2>${ok ? "✓ Added to Safe List" : "Error"}</h2>
+      <p>${ok ? `${escHtml(number)} will no longer be blocked by SMS Pumping Protection.` : escHtml(JSON.stringify(body))}</p>
+      <p><a href="/safelist?key=${encodeURIComponent(provided)}">Add another</a> &nbsp;|&nbsp; <a href="/logs?key=${encodeURIComponent(provided)}">Back to logs</a></p>
+    </body></html>`,
+    { status: ok ? 200 : 400, headers: { "Content-Type": "text/html" } }
+  );
+}
+__name(handleSafelist, "handleSafelist");
 function escHtml(s) {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
