@@ -37,6 +37,9 @@ var worker_default = {
     if (pathname === "/safelist") {
       return handleSafelist(request, env);
     }
+    if (pathname === "/apitest") {
+      return handleApiTest(request, env);
+    }
     return new Response("Not Found", { status: 404 });
   }
 };
@@ -280,11 +283,9 @@ function parseSms(text, { requireMobile = true } = {}) {
 __name(parseSms, "parseSms");
 function parseApiDate(s) {
   if (!s) return null;
-  const MONTH_MAP = { Jan:0, Feb:1, Mar:2, Apr:3, May:4, Jun:5, Jul:6, Aug:7, Sep:8, Oct:9, Nov:10, Dec:11 };
-  const m = String(s).trim().match(/(\d{1,2})\s+([A-Za-z]{3})\s+(\d{2,4})/);
+  const m = String(s).match(/\/Date\((-?\d+)\)\//);
   if (!m) return null;
-  const y = parseInt(m[3]) < 100 ? 2000 + parseInt(m[3]) : parseInt(m[3]);
-  return new Date(Date.UTC(y, MONTH_MAP[m[2]], parseInt(m[1])));
+  return new Date(parseInt(m[1]));
 }
 __name(parseApiDate, "parseApiDate");
 function shortDate(d) {
@@ -683,6 +684,24 @@ async function handleReview(request, env) {
   return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
 }
 __name(handleReview, "handleReview");
+async function handleApiTest(request, env) {
+  const url = new URL(request.url);
+  const provided = url.searchParams.get("key") || "";
+  const secret = env.LOGS_PASSWORD || "";
+  if (!secret || provided !== secret) return new Response("Forbidden", { status: 403 });
+  const postcode = (url.searchParams.get("postcode") || "M1 1AE").trim();
+  const geoResp = await fetch(`https://api.postcodes.io/postcodes/${encodeURIComponent(postcode)}`);
+  const geoData = await geoResp.json();
+  if (!geoData.result) return new Response(JSON.stringify(geoData), { status: 400, headers: { "Content-Type": "application/json" } });
+  const { latitude: lat, longitude: lng } = geoData.result;
+  const cookies = await loginToSite(env.FINDAMINYAN_EMAIL, env.FINDAMINYAN_PASSWORD);
+  const today = new Date();
+  const start = new Date(today); start.setDate(today.getDate() - 7);
+  const end = new Date(today); end.setDate(today.getDate() + 60);
+  const raw = await searchNearby(cookies, lat, lng, start, end, 50);
+  return new Response(JSON.stringify(raw, null, 2), { headers: { "Content-Type": "application/json" } });
+}
+__name(handleApiTest, "handleApiTest");
 async function handleSafelist(request, env) {
   const url = new URL(request.url);
   const provided = url.searchParams.get("key") || "";
