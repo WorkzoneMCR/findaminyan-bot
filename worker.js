@@ -196,7 +196,7 @@ async function handleSms(request, env) {
   } else if (others === 0) {
     reply = `We have added your details - ${postcode}, ${numPeople} ${numPeople === 1 ? "man" : "men"}, ${dateRange}. No one else is nearby yet for a minyan - check back again in 1-2 wks! Findaminyan`;
   } else {
-    reply = `We have added your details - ${postcode}, ${numPeople} ${numPeople === 1 ? "man" : "men"}, ${dateRange}. ${others} other${others === 1 ? "" : "s"} nearby, ${total} in total - check back again in 1-2 wks! Findaminyan`;
+    reply = `We have added your details - ${postcode}, ${numPeople} ${numPeople === 1 ? "man" : "men"}, ${dateRange}. There are ${others} other${others === 1 ? "" : "s"} nearby, ${total} in total, but not enough yet for a minyan - check back again in 1-2 wks! Findaminyan`;
   }
   const logStatus = isCheckExisting ? `CHECK \u2014 EXISTING` : isCheckNew ? `CHECK \u2014 NEW` : resultStatus;
   await writeLog(env, {

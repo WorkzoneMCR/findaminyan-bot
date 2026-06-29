@@ -1,0 +1,1 @@
+npx wrangler secret put LOGS_PASSWORD
