@@ -95,11 +95,36 @@ async function handleSms(request, env) {
 
   // For check-ups: skip duplicate detection and skip addLocation
   let rawEntries;
+  let addedForExisting = false;
   if (isCheckUp) {
-    console.log(`[SMS] Check-up mode: ${isCheckExisting ? "existing" : "new"} — skipping add`);
-    const nearbyData = await searchNearby(cookies, lat, lng, start, end, searchRadius);
-    const { entries } = countPeopleNearby(nearbyData);
-    rawEntries = entries;
+    const nearbyDataPre = await searchNearby(cookies, lat, lng, start, end, searchRadius);
+    const { entries: preEntries } = countPeopleNearby(nearbyDataPre);
+    if (isCheckExisting) {
+      // Check if their entry actually exists
+      const normMobile = senderMobile.replace(/\s/g, "");
+      const normFrom = fromNumber.replace(/\s/g, "");
+      const normContact = contactForSite.replace(/\s/g, "");
+      const normPostcode = postcode.replace(/\s/g, "").toUpperCase();
+      const exists = preEntries.some((e) => {
+        const p = (e.phone || "").replace(/\s/g, "");
+        const pc = (e.postcode || "").replace(/\s/g, "").toUpperCase();
+        return (p && (p === normMobile || p === normFrom || p === normContact)) || pc === normPostcode;
+      });
+      if (!exists) {
+        console.log(`[SMS] check up existing — listing not found, adding now`);
+        await addLocation(cookies, postcode, numPeople, start, end, lat, lng, address, contactForSite, env.FINDAMINYAN_EMAIL);
+        addedForExisting = true;
+        const nearbyDataPost = await searchNearby(cookies, lat, lng, start, end, searchRadius);
+        const { entries } = countPeopleNearby(nearbyDataPost);
+        rawEntries = entries;
+      } else {
+        console.log(`[SMS] check up existing — listing found, skipping add`);
+        rawEntries = preEntries;
+      }
+    } else {
+      console.log(`[SMS] check up new — skipping add`);
+      rawEntries = preEntries;
+    }
   } else {
     // Normal registration flow
     const nearbyDataPre = await searchNearby(cookies, lat, lng, start, end, searchRadius);
@@ -207,6 +232,9 @@ async function handleSms(request, env) {
     } else {
       reply = `We have added your details - ${postcode}, ${numPeople} ${numPeople === 1 ? "man" : "men"}, ${dateRange}. There are ${others} other${others === 1 ? "" : "s"} nearby, ${total} in total, but not enough yet for a minyan - check back again in 1-2 wks! Findaminyan`;
     }
+  }
+  if (addedForExisting) {
+    reply = `Listing not existing, so added details to site: ` + reply;
   }
   const logStatus = isCheckExisting ? `CHECK \u2014 EXISTING` : isCheckNew ? `CHECK \u2014 NEW` : resultStatus;
   await writeLog(env, {
