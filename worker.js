@@ -179,19 +179,17 @@ async function handleSms(request, env) {
   console.log(`[SMS] Result: ${resultStatus} (${total} people)`);
   const requesterDays = Math.round((end.getTime() - start.getTime()) / 864e5) + 1;
   if (total >= 8) {
-    const contactLines = enriched.slice(0, 8).map((e, i) => {
-      const dist    = e.driveMiles != null ? ` (${Math.round(e.driveMiles)}mi driving)` : "";
-      const manmen  = e.people === 1 ? "1 man" : `${e.people} men`;
+    const contactLines = enriched.slice(0, 5).map((e, i) => {
+      const dist    = e.driveMiles != null ? ` ${Math.round(e.driveMiles)}mi` : "";
+      const manmen  = e.people === 1 ? "1man" : `${e.people}men`;
       const eStart  = parseApiDate(e.startDate);
       const eEnd    = parseApiDate(e.endDate);
       const dates   = eStart && eEnd ? ` ${shortDate(eStart)}-${shortDate(eEnd)}` : "";
-      const overlap = overlapDays(start, end, eStart, eEnd);
-      const days    = overlap !== null ? ` (${overlap}/${requesterDays} days)` : "";
       const phone   = e.phone ? ` ${fmtPhone(e.phone)}` : "";
-      return `Location ${i + 1} - ${manmen}${dates}${days} - ${e.postcode}${dist}${phone}`.trim();
+      return `${i + 1}. ${manmen}${dates} - ${e.postcode}${dist}${phone}`.trim();
     });
-    const minyanLine = total >= MINYAN ? "\nMinyan alert - you have a minyan!" : `\nMinyan alert - ${MINYAN - total} more for a minyan!`;
-    reply = `There are ${total} (including yours) near ${postcode} for ${dateRange}:\n` + contactLines.join("\n") + `\nCheck back in 1-2 wks for more info! Findaminyan.` + minyanLine;
+    const minyanLine = total >= MINYAN ? " MINYAN!" : ` ${MINYAN - total} more needed.`;
+    reply = `${total} near ${postcode} ${dateRange}:\n` + contactLines.join("\n") + `\nCheck back 1-2wks. FindAMinyan.${minyanLine}`;
     if (total >= MINYAN) {
       await notifyAdmin(env, total, postcode, start, end, enriched, senderMobile);
     }
