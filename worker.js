@@ -600,7 +600,7 @@ async function handleLogsPage(request, env) {
   };
   const smsCost = (reply) => {
     const segs = smsSegments(reply);
-    return segs * 0.04 + 0.04; // £0.04/outbound segment + £0.04 inbound
+    return segs * 0.04232 + 0.00567; // £0.04232/outbound segment + £0.00567 inbound
   };
   let totalCost = 0;
   const rows = logs.map((l) => {
