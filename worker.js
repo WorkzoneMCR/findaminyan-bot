@@ -62,7 +62,7 @@ async function handleSms(request, env) {
   // Strip the check-up prefix before parsing
   const bodyToParse = isCheckUp ? smsBody.replace(/^check\s*up\s*(existing|new)\s*:\s*/i, "") : smsBody;
 
-  const parsed = parseSms(bodyToParse, { requireMobile: !isCheckNew });
+  const parsed = parseSms(bodyToParse, { requireMobile: !isCheckUp });
   if (parsed.missing) {
     const missing = parsed.missing.join(", ");
     console.log(`[SMS] Missing fields: ${missing}`);
