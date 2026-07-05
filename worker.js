@@ -111,7 +111,7 @@ async function handleSms(request, env) {
       });
       if (!exists) {
         console.log(`[SMS] check up existing — listing not found, returning prompt`);
-        return twimlResponse(`This address is not registered yet. To add your details please resend as: check up new: [details]. FindAMinyan`);
+        return twimlResponse(`This address is not registered yet. To check nearby without registering use 'check up new:'. To register, resend without the check up prefix, e.g. 1 man, NE8 1TU, 1-5aug, 07974591907. FindAMinyan`);
       }
       console.log(`[SMS] check up existing — listing found, skipping add`);
       rawEntries = preEntries;
