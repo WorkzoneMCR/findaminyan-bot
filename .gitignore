@@ -9,3 +9,9 @@ node_modules/
 *.log
 *.code-workspace
 f.a.m
+samples/
+patch-*.js
+test-*.mjs
+test-*.txt
+financial-hub.html
+pbx-*.txt
