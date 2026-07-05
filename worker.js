@@ -95,7 +95,7 @@ async function handleSms(request, env) {
 
   // For check-ups: skip duplicate detection and skip addLocation
   let rawEntries;
-  let addedForExisting = false;
+  let rawEntries;
   if (isCheckUp) {
     const nearbyDataPre = await searchNearby(cookies, lat, lng, start, end, searchRadius);
     const { entries: preEntries } = countPeopleNearby(nearbyDataPre);
@@ -111,16 +111,11 @@ async function handleSms(request, env) {
         return (p && (p === normMobile || p === normFrom || p === normContact)) || pc === normPostcode;
       });
       if (!exists) {
-        console.log(`[SMS] check up existing — listing not found, adding now`);
-        await addLocation(cookies, postcode, numPeople, start, end, lat, lng, address, contactForSite, env.FINDAMINYAN_EMAIL);
-        addedForExisting = true;
-        const nearbyDataPost = await searchNearby(cookies, lat, lng, start, end, searchRadius);
-        const { entries } = countPeopleNearby(nearbyDataPost);
-        rawEntries = entries;
-      } else {
-        console.log(`[SMS] check up existing — listing found, skipping add`);
-        rawEntries = preEntries;
+        console.log(`[SMS] check up existing — listing not found, returning prompt`);
+        return twimlResponse(`This address is not registered yet. To add your details please resend as: check up new: [details]. FindAMinyan`);
       }
+      console.log(`[SMS] check up existing — listing found, skipping add`);
+      rawEntries = preEntries;
     } else {
       console.log(`[SMS] check up new — skipping add`);
       rawEntries = preEntries;
@@ -233,9 +228,7 @@ async function handleSms(request, env) {
       reply = `We have added your details - ${postcode}, ${numPeople} ${numPeople === 1 ? "man" : "men"}, ${dateRange}. There are ${others} other${others === 1 ? "" : "s"} nearby, ${total} in total, but not enough yet for a minyan - check back again in 1-2 wks! Findaminyan`;
     }
   }
-  if (addedForExisting) {
-    reply = `Listing not existing, so added details to site: ` + reply;
-  }
+
   const logStatus = isCheckExisting ? `CHECK \u2014 EXISTING` : isCheckNew ? `CHECK \u2014 NEW` : resultStatus;
   await writeLog(env, {
     id: Date.now() + "-" + Math.random().toString(36).slice(2, 7),
