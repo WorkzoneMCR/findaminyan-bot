@@ -295,7 +295,7 @@ function parseSms(text, { requireMobile = true } = {}) {
   if (!start || !end) {
     // "3-10aug" or "3-10 august 26" — same-month day range
     const MON = "jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december";
-    const sameMonRe = new RegExp(`(\\d{1,2})[-–—](\\d{1,2})\\s*(${MON})(?:\\s*(\\d{2,4}))?`, "i");
+    const sameMonRe = new RegExp(`(\\d{1,2})\\s*(?:[-–—]|\\bto\\b)\\s*(\\d{1,2})\\s*(${MON})(?:\\s*(\\d{2,4}))?`, "i");
     const sm = text.match(sameMonRe);
     if (sm) { start = parseNatDate(sm[1], sm[3], sm[4]); end = parseNatDate(sm[2], sm[3], sm[4]); }
   }
