@@ -95,7 +95,6 @@ async function handleSms(request, env) {
 
   // For check-ups: skip duplicate detection and skip addLocation
   let rawEntries;
-  let rawEntries;
   if (isCheckUp) {
     const nearbyDataPre = await searchNearby(cookies, lat, lng, start, end, searchRadius);
     const { entries: preEntries } = countPeopleNearby(nearbyDataPre);
