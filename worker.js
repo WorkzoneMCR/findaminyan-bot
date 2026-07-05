@@ -285,15 +285,21 @@ __name(escXml, "escXml");
 function parseSms(text, { requireMobile = true } = {}) {
   const missing = [];
 
-  const peopleMatch = text.match(/(\d+)\s*(?:men?|man|people?|person|males?)\b/i);
+  const peopleMatch = text.match(/(\d+)\s*(?:men?|man|people?|person|ppl|males?)\b/i);
   const numPeople = peopleMatch ? Math.min(parseInt(peopleMatch[1]), 9) : null;
   if (!numPeople) missing.push("number of men (e.g. '2 men')");
 
   const dateMatch = text.match(
     /(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})\s*(?:[-–—]|to)\s*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})/i
   );
-  const start = dateMatch ? parseDate(dateMatch[1]) : null;
-  const end = dateMatch ? parseDate(dateMatch[2]) : null;
+  let start = dateMatch ? parseDate(dateMatch[1]) : null;
+  let end = dateMatch ? parseDate(dateMatch[2]) : null;
+  if (!start || !end) {
+    const MON = "jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december";
+    const natRe = new RegExp(`(\\d{1,2})\\s*(${MON})\\s*(\\d{2,4})?\\s*(?:[-–—]|\\bto\\b)\\s*(\\d{1,2})\\s*(${MON})\\s*(\\d{2,4})?`, "i");
+    const nm = text.match(natRe);
+    if (nm) { start = parseNatDate(nm[1], nm[2], nm[3]); end = parseNatDate(nm[4], nm[5], nm[6]); }
+  }
   if (!start || !end) missing.push("dates");
 
   const pcMatch = text.match(/\b([A-Z]{1,2}\d[0-9A-Z]?\s*\d[A-Z]{2})\b/i);
@@ -346,6 +352,16 @@ function overlapDays(aStart, aEnd, bStart, bEnd) {
   return Math.round((oEnd - oStart) / 864e5) + 1;
 }
 __name(overlapDays, "overlapDays");
+function parseNatDate(day, monthStr, yearStr) {
+  const MONTH_MAP = { jan:1, feb:2, mar:3, apr:4, may:5, jun:6, jul:7, aug:8, sep:9, oct:10, nov:11, dec:12 };
+  const month = MONTH_MAP[String(monthStr).toLowerCase().slice(0, 3)];
+  if (!month) return null;
+  let year = yearStr ? parseInt(yearStr) : 2026;
+  if (year < 100) year += 2000;
+  const date = new Date(Date.UTC(year, month - 1, parseInt(day)));
+  return isNaN(date.getTime()) ? null : date;
+}
+__name(parseNatDate, "parseNatDate");
 function parseDate(s) {
   s = s.replace(/[.\-]/g, "/");
   const parts = s.split("/");

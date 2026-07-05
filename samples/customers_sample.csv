@@ -1,0 +1,11 @@
+name,email,phone,company,total_invoiced,total_paid,notes
+Acme Distribution Ltd,accounts@acmedist.co.uk,0161 400 1001,Acme Distribution Ltd,4680.00,4200.00,3 extensions + broadband
+Beta Recruitment,finance@betarecruit.com,0161 400 1002,Beta Recruitment Services,2340.00,2340.00,2 extensions + broadband
+City Contractors NW,billing@citycontractors.co.uk,0161 400 1003,City Contractors NW,3510.00,3000.00,2 extensions + broadband - slow payer
+Delta Logistics,admin@deltalogistics.com,0161 400 1004,Delta Logistics Ltd,7020.00,7020.00,5 extensions + broadband
+Echo Hair Studio,echo@echosalon.co.uk,0161 400 1005,Echo Hair Studio,1170.00,780.00,1 extension + broadband - 3 months outstanding
+Falcon Print Co,accounts@falconprint.co.uk,0161 400 1006,Falcon Print Co Ltd,2340.00,2340.00,2 extensions + broadband
+Greenway Cafe,hello@greenwaycafe.com,0161 400 1007,Greenway Cafe,1170.00,1170.00,1 extension + broadband
+Highland Security,admin@highlandsecurity.co.uk,0161 400 1008,Highland Security Ltd,4680.00,3900.00,3 extensions + broadband
+Indigo Design,studio@indigodesign.co.uk,0161 400 1009,Indigo Design Studio,2340.00,2340.00,2 extensions + broadband
+Jupiter Auto,billing@jupiterauto.co.uk,0161 400 1010,Jupiter Auto Ltd,3510.00,3510.00,2 extensions + broadband

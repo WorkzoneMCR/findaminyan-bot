@@ -1,0 +1,11 @@
+ClientName,EmailAddr,ContactNumber,BusinessName,TotalBilled,AmountReceived,Notes
+Acme Telecom Ltd,accounts@acmetelecom.co.uk,01613334444,Acme Telecom Ltd,2850.00,2400.00,Monthly broadband + 4 extensions
+Bright Solutions,info@brightsolutions.com,02074445555,Bright Solutions Ltd,1420.00,1420.00,Paid in full
+Northern Office Supplies,finance@northernoffice.co.uk,01619998888,Northern Office Supplies,3100.00,2700.00,Dispute on call charges
+TechStart Manchester,hello@techstart.io,07700900123,TechStart Manchester,680.00,680.00,
+Riverside Cafe,owner@riversidecafe.co.uk,01614441111,Riverside Cafe,540.00,400.00,Partial payment outstanding
+Green Energy Co,billing@greenenergy.co.uk,02031112222,Green Energy Co,1950.00,1950.00,
+Summit Legal,accounts@summitlegal.co.uk,01619997777,Summit Legal LLP,4200.00,3800.00,Query on extension costs
+Delta Logistics,ops@deltalogistics.com,07800900456,Delta Logistics Ltd,2100.00,2100.00,
+Horizon Property,finance@horizonproperty.co.uk,01612223333,Horizon Property Group,760.00,500.00,Overdue 60 days
+BlueSky IT,admin@blueskyit.co.uk,01614449999,BlueSky IT Services,1380.00,1380.00,
