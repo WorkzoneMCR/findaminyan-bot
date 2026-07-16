@@ -288,14 +288,14 @@ function parseSms(text, { requireMobile = true } = {}) {
   let end = dateMatch ? parseDate(dateMatch[2]) : null;
   if (!start || !end) {
     const MON = "jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december";
-    const natRe = new RegExp(`(\\d{1,2})\\s*(${MON})\\s*(\\d{2,4})?\\s*(?:[-–—]|\\bto\\b)\\s*(\\d{1,2})\\s*(${MON})\\s*(\\d{2,4})?`, "i");
+    const natRe = new RegExp(`(\\d{1,2})(?:st|nd|rd|th)?\\s*(${MON})\\s*(\\d{2,4})?\\s*(?:[-–—]|\\bto\\b)\\s*(\\d{1,2})(?:st|nd|rd|th)?\\s*(${MON})\\s*(\\d{2,4})?`, "i");
     const nm = text.match(natRe);
     if (nm) { start = parseNatDate(nm[1], nm[2], nm[3]); end = parseNatDate(nm[4], nm[5], nm[6]); }
   }
   if (!start || !end) {
     // "3-10aug" or "3-10 august 26" — same-month day range
     const MON = "jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december";
-    const sameMonRe = new RegExp(`(\\d{1,2})\\s*(?:[-–—]|\\bto\\b)\\s*(\\d{1,2})\\s*(${MON})(?:\\s*(\\d{2,4}))?`, "i");
+    const sameMonRe = new RegExp(`(\\d{1,2})(?:st|nd|rd|th)?\\s*(?:[-–—]|\\bto\\b)\\s*(\\d{1,2})(?:st|nd|rd|th)?\\s*(${MON})(?:\\s*(\\d{2,4}))?`, "i");
     const sm = text.match(sameMonRe);
     if (sm) { start = parseNatDate(sm[1], sm[3], sm[4]); end = parseNatDate(sm[2], sm[3], sm[4]); }
   }
@@ -355,7 +355,7 @@ function parseNatDate(day, monthStr, yearStr) {
   const MONTH_MAP = { jan:1, feb:2, mar:3, apr:4, may:5, jun:6, jul:7, aug:8, sep:9, oct:10, nov:11, dec:12 };
   const month = MONTH_MAP[String(monthStr).toLowerCase().slice(0, 3)];
   if (!month) return null;
-  let year = yearStr ? parseInt(yearStr) : 2026;
+  let year = yearStr ? parseInt(yearStr) : new Date().getUTCFullYear();
   if (year < 100) year += 2000;
   const date = new Date(Date.UTC(year, month - 1, parseInt(day)));
   return isNaN(date.getTime()) ? null : date;
