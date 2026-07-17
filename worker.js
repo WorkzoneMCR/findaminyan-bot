@@ -305,6 +305,8 @@ function parseSms(text, { requireMobile = true } = {}) {
     if (sm) { start = parseNatDate(sm[1], sm[3], sm[4]); end = parseNatDate(sm[2], sm[3], sm[4]); }
   }
   if (!start || !end) missing.push("dates");
+  // Swap silently if end is before start (e.g. "29 aug till 10 aug" meaning aug 29 - sep/oct 10)
+  if (start && end && start > end) { const tmp = start; start = end; end = tmp; }
 
   const pcMatch = text.match(/\b([A-Z]{1,2}\d[0-9A-Z]?\s*\d[A-Z]{2})\b/i);
   if (!pcMatch) missing.push("postcode");
@@ -513,7 +515,11 @@ async function searchNearby(cookies, lat, lng, start, end, distance) {
       "Referer": `${BASE_URL}/Member`
     }
   });
-  return resp.json();
+  const text = await resp.text();
+  try { return JSON.parse(text); } catch (e) {
+    console.error("[searchNearby] Non-JSON response:", text.slice(0, 200));
+    return { timeLineData: [] };
+  }
 }
 __name(searchNearby, "searchNearby");
 function normalizePhone(p) {
