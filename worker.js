@@ -204,31 +204,30 @@ async function handleSms(request, env) {
   if (total >= 8) {
     const contactLines = enriched.slice(0, 5).map((e, i) => {
       const dist    = e.driveMinutes != null ? ` (${Math.round(e.driveMinutes)}min drive)` : "";
-      const manmen  = e.people === 1 ? "1 man" : `${e.people} men`;
+      const manmen  = e.name ? "Minyan arranged" : e.people === 1 ? "1 man" : `${e.people} men`;
       const eStart  = parseApiDate(e.startDate);
       const eEnd    = parseApiDate(e.endDate);
       const dates   = eStart && eEnd ? ` ${shortDate(eStart)}-${shortDate(eEnd)}` : "";
       const phone   = e.phone ? ` No. ${e.phone.trim()}` : "";
       return `${i + 1}) ${manmen}${dates} - ${e.postcode}${dist}${phone}.`.trim();
     });
-    const minyanLine = total >= MINYAN ? " MINYAN!" : "";
     const includingYou = isCheckUp ? "" : " (including you)";
     const headerCount = isCheckUp ? others : total;
-    reply = `There are ${headerCount} people near '${postcode}' for ${dateRange}${includingYou}.\nHere are the details of those nearby\n` + contactLines.join("\n") + `\nCheck back 1-2wks. FindAMinyan.${minyanLine}`;
+    reply = `There are ${headerCount} people near '${postcode}' for ${dateRange}${includingYou}.\nHere are the details of those nearby\n` + contactLines.join("\n") + `\nFor more info, check back in 1-2 wks. FindAMinyan.`;
     if (total >= MINYAN) {
       await notifyAdmin(env, total, postcode, start, end, enriched, senderMobile);
     }
   } else if (others === 0) {
     if (isCheckUp) {
-      reply = `No one else is registered nearby for those dates yet - check back in 1-2 wks! FindAMinyan`;
+      reply = `No one else is registered nearby for those dates yet. For more info, check back in 1-2 wks. FindAMinyan.`;
     } else {
-      reply = `We have added your details - ${postcode}, ${numPeople} ${numPeople === 1 ? "man" : "men"}, ${dateRange}. No one else is nearby yet for a minyan - check back again in 1-2 wks! Findaminyan`;
+      reply = `We have added your details - ${postcode}, ${numPeople} ${numPeople === 1 ? "man" : "men"}, ${dateRange}. No one else is nearby yet. For more info, check back in 1-2 wks. FindAMinyan.`;
     }
   } else {
     if (isCheckUp) {
-      reply = `There are ${others} other${others === 1 ? "" : "s"} nearby for those dates, ${total} in total, but not enough yet for a minyan - check back in 1-2 wks! FindAMinyan`;
+      reply = `There are ${others} other${others === 1 ? "" : "s"} nearby for those dates, ${total} in total. For more info, check back in 1-2 wks. FindAMinyan.`;
     } else {
-      reply = `We have added your details - ${postcode}, ${numPeople} ${numPeople === 1 ? "man" : "men"}, ${dateRange}. There are ${others} other${others === 1 ? "" : "s"} nearby, ${total} in total, but not enough yet for a minyan - check back again in 1-2 wks! Findaminyan`;
+      reply = `We have added your details - ${postcode}, ${numPeople} ${numPeople === 1 ? "man" : "men"}, ${dateRange}. ${others} other${others === 1 ? "" : "s"} nearby, ${total} in total. For more info, check back in 1-2 wks. FindAMinyan.`;
     }
   }
 
@@ -543,6 +542,7 @@ function countPeopleNearby(data, searchStart, searchEnd) {
     if (!present) continue;
     total += n;
     entries.push({
+      name: (loc.Name || "").trim(),
       postcode: (loc.Postcode || "").replace(/&nbsp;/g, " ").trim(),
       people: n,
       phone: loc.Mobile || loc.Contact || "",
