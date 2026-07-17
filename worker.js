@@ -528,7 +528,7 @@ function countPeopleNearby(data, searchStart, searchEnd) {
   let total = 0;
   const entries = [];
   for (const loc of data.timeLineData || []) {
-    if (loc.LocationType === 4 || loc.LocationType === 2) continue; // skip user-pin and shuls
+    if (loc.LocationType === 4) continue; // skip search-pin placeholder
     const n = parseInt(loc.NumberOfPeople) || 0;
     if (n <= 0) continue;
     // Use our own date overlap rather than the site's Here array (Here can be wrong)
