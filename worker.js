@@ -192,7 +192,7 @@ async function handleSms(request, env) {
   const destCoords = otherEntries.map((e) => ({ lat: e.lat, lng: e.lng }));
   if (destCoords.some((d) => d.lat && d.lng)) {
     const driveTimes = await getDrivingDistancesOSRM(lat, lng, destCoords);
-    enriched = otherEntries.map((e, i) => ({ ...e, driveMiles: driveTimes[i]?.miles ?? null, driveMinutes: driveTimes[i]?.minutes ?? null })).filter((e) => e.driveMiles == null || e.driveMiles <= maxMiles);
+    enriched = otherEntries.map((e, i) => ({ ...e, driveMiles: driveTimes[i]?.miles ?? null, driveMinutes: driveTimes[i]?.minutes ?? null })).filter((e) => e.driveMiles == null || e.driveMiles <= maxMiles * 1.5);
   }
   const total = numPeople + enriched.reduce((s, e) => s + e.people, 0);
   const others = total - numPeople;
