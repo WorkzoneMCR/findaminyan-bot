@@ -177,12 +177,16 @@ async function handleSms(request, env) {
     rawEntries = entries;
   }
   console.log(`[SMS] Post-add nearby: ${rawEntries.length} entries`);
-  const normMobileFilter = senderMobile.replace(/\s/g, "");
-  const normFromFilter = fromNumber.replace(/\s/g, "");
-  const normContactFilter = contactForSite.replace(/\s/g, "");
+  const selfPhones = new Set(
+    [senderMobile, fromNumber, contactForSite].map(normalizePhone).filter(Boolean)
+  );
+  const normPostcodeFilter = postcode.replace(/\s/g, "").toUpperCase();
   const otherEntries = rawEntries.filter((e) => {
-    const p = (e.phone || "").replace(/\s/g, "");
-    return p !== normMobileFilter && p !== normContactFilter && p !== normFromFilter;
+    const p = normalizePhone(e.phone || "");
+    const pc = (e.postcode || "").replace(/\s/g, "").toUpperCase();
+    // Exclude user's own entry by phone OR postcode (for check-up existing where entry is already in DB)
+    if (isCheckExisting && pc === normPostcodeFilter) return false;
+    return !p || !selfPhones.has(p);
   });
   let enriched = otherEntries;
   const destCoords = otherEntries.map((e) => ({ lat: e.lat, lng: e.lng }));
@@ -513,11 +517,20 @@ async function searchNearby(cookies, lat, lng, start, end, distance) {
   return resp.json();
 }
 __name(searchNearby, "searchNearby");
+function normalizePhone(p) {
+  p = String(p || "").replace(/[\s\-\.\(\)]/g, "");
+  if (p.startsWith("+44")) return "0" + p.slice(3);
+  if (p.startsWith("0044")) return "0" + p.slice(4);
+  return p;
+}
+__name(normalizePhone, "normalizePhone");
 function countPeopleNearby(data) {
   let total = 0;
   const entries = [];
   for (const loc of data.timeLineData || []) {
-    if (loc.LocationType === LOC_INDIVIDUAL || loc.LocationType === LOC_CAMP) {
+    const isIndividualOrCamp = loc.LocationType === LOC_INDIVIDUAL || loc.LocationType === LOC_CAMP;
+    const isPresentDuringDates = (loc.Here || []).some((h) => h === true);
+    if ((isIndividualOrCamp || isPresentDuringDates) && loc.LocationType !== 4) {
       const n = parseInt(loc.NumberOfPeople) || 0;
       if (n > 0) {
         total += n;
