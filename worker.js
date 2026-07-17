@@ -629,6 +629,7 @@ async function handleLogsPage(request, env) {
     const statusColour = l.status.includes("MINYAN") ? "#16a34a" : isPending ? "#7c3aed" : l.status.includes("DUPLICATE") ? "#6b7280" : "#b45309";
     const statusCell = isPending && l.id ? `<a href="/review?id=${encodeURIComponent(l.id)}&key=${encodeURIComponent(secret)}" style="color:#7c3aed;font-weight:600;text-decoration:underline">${escHtml(l.status)} \u2014 Review</a>` : `<span style="color:${statusColour};font-weight:600">${escHtml(l.status)}</span>`;
     const replyCell = l.reply ? `<details><summary style="cursor:pointer;color:#1e3a5f">View SMS</summary><pre style="margin:.4rem 0 0;white-space:pre-wrap;font-size:.8rem;max-width:320px">${escHtml(l.reply)}</pre></details>` : "\u2014";
+    const bodyCell = l.body ? `<details><summary style="cursor:pointer;color:#6b7280">View</summary><pre style="margin:.4rem 0 0;white-space:pre-wrap;font-size:.8rem;max-width:320px">${escHtml(l.body)}</pre></details>` : "\u2014";
     const cost = smsCost(l.reply);
     const segs = smsSegments(l.reply);
     totalCost += cost;
@@ -640,6 +641,7 @@ async function handleLogsPage(request, env) {
       <td style="text-align:center">${l.people}</td>
       <td style="text-align:center">${l.nearby}</td>
       <td>${statusCell}</td>
+      <td>${bodyCell}</td>
       <td>${replyCell}</td>
       <td style="text-align:right;white-space:nowrap">£${cost.toFixed(2)}<br><span style="color:#6b7280;font-size:.75rem">${segs} seg</span></td>
     </tr>`;
@@ -669,11 +671,11 @@ async function handleLogsPage(request, env) {
   <table>
     <thead><tr>
       <th>Time (UK)</th><th>From</th><th>Postcode</th>
-      <th>Dates</th><th># Sent</th><th># Nearby</th><th>Result</th><th>Reply</th><th>Est. Cost</th>
+      <th>Dates</th><th># Sent</th><th># Nearby</th><th>Result</th><th>Incoming</th><th>Reply</th><th>Est. Cost</th>
     </tr></thead>
-    <tbody>${rows || '<tr><td colspan="9" class="empty">No requests yet</td></tr>'}
+    <tbody>${rows || '<tr><td colspan="10" class="empty">No requests yet</td></tr>'}
     ${logs.length ? `<tr style="background:#f0f4ff;font-weight:600">
-      <td colspan="8" style="text-align:right;padding:.6rem 1rem">Total estimated cost (${logs.length} SMS):</td>
+      <td colspan="9" style="text-align:right;padding:.6rem 1rem">Total estimated cost (${logs.length} SMS):</td>
       <td style="text-align:right;padding:.6rem 1rem;white-space:nowrap">£${totalCost.toFixed(2)}</td>
     </tr>` : ""}</tbody>
   </table>
