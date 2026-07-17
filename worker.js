@@ -97,7 +97,7 @@ async function handleSms(request, env) {
   let rawEntries;
   if (isCheckUp) {
     const nearbyDataPre = await searchNearby(cookies, lat, lng, start, end, searchRadius);
-    const { entries: preEntries } = countPeopleNearby(nearbyDataPre);
+    const { entries: preEntries } = countPeopleNearby(nearbyDataPre, start, end);
     if (isCheckExisting) {
       // Check if their entry actually exists
       const normMobile = senderMobile.replace(/\s/g, "");
@@ -122,7 +122,7 @@ async function handleSms(request, env) {
   } else {
     // Normal registration flow
     const nearbyDataPre = await searchNearby(cookies, lat, lng, start, end, searchRadius);
-    const { entries: preEntries } = countPeopleNearby(nearbyDataPre);
+    const { entries: preEntries } = countPeopleNearby(nearbyDataPre, start, end);
     console.log(`[SMS] Pre-add nearby: ${preEntries.length} entries`);
     const normMobile = senderMobile.replace(/\s/g, "");
     const normFrom = fromNumber.replace(/\s/g, "");
@@ -173,7 +173,7 @@ async function handleSms(request, env) {
     );
     console.log(`[SMS] addLocation response: ${addResult}`);
     const nearbyDataPost = await searchNearby(cookies, lat, lng, start, end, searchRadius);
-    const { entries } = countPeopleNearby(nearbyDataPost);
+    const { entries } = countPeopleNearby(nearbyDataPost, start, end);
     rawEntries = entries;
   }
   console.log(`[SMS] Post-add nearby: ${rawEntries.length} entries`);
@@ -524,28 +524,34 @@ function normalizePhone(p) {
   return p;
 }
 __name(normalizePhone, "normalizePhone");
-function countPeopleNearby(data) {
+function countPeopleNearby(data, searchStart, searchEnd) {
   let total = 0;
   const entries = [];
   for (const loc of data.timeLineData || []) {
-    const isIndividualOrCamp = loc.LocationType === LOC_INDIVIDUAL || loc.LocationType === LOC_CAMP;
-    const isPresentDuringDates = (loc.Here || []).some((h) => h === true);
-    if ((isIndividualOrCamp || isPresentDuringDates) && loc.LocationType !== 4) {
-      const n = parseInt(loc.NumberOfPeople) || 0;
-      if (n > 0) {
-        total += n;
-        entries.push({
-          postcode: (loc.Postcode || "").replace(/&nbsp;/g, " ").trim(),
-          people: n,
-          phone: loc.Mobile || loc.Contact || "",
-          email: loc.Email || "",
-          lat: parseFloat(loc.Latitude) || null,
-          lng: parseFloat(loc.Longitude) || null,
-          startDate: loc.StartDate || "",
-          endDate: loc.EndDate || ""
-        });
-      }
+    if (loc.LocationType === 4 || loc.LocationType === 2) continue; // skip user-pin and shuls
+    const n = parseInt(loc.NumberOfPeople) || 0;
+    if (n <= 0) continue;
+    // Use our own date overlap rather than the site's Here array (Here can be wrong)
+    const entryStart = parseApiDate(loc.StartDate);
+    const entryEnd   = parseApiDate(loc.EndDate);
+    let present;
+    if (entryStart && entryEnd && searchStart && searchEnd) {
+      present = entryStart <= searchEnd && entryEnd >= searchStart;
+    } else {
+      present = (loc.Here || []).some((h) => h === true); // fallback
     }
+    if (!present) continue;
+    total += n;
+    entries.push({
+      postcode: (loc.Postcode || "").replace(/&nbsp;/g, " ").trim(),
+      people: n,
+      phone: loc.Mobile || loc.Contact || "",
+      email: loc.Email || "",
+      lat: parseFloat(loc.Latitude) || null,
+      lng: parseFloat(loc.Longitude) || null,
+      startDate: loc.StartDate || "",
+      endDate: loc.EndDate || ""
+    });
   }
   return { total, entries };
 }
