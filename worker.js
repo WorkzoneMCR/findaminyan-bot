@@ -797,6 +797,19 @@ async function handleReview(request, env) {
   return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
 }
 __name(handleReview, "handleReview");
+var POSTCODE_AREA_NAMES = {
+  AB:"Aberdeen",AG:"Ardrossan",AL:"St Albans",B:"Birmingham",BA:"Bath",BB:"Blackburn",BD:"Bradford",BH:"Bournemouth",BL:"Bolton",BN:"Brighton",BR:"Bromley",BS:"Bristol",CA:"Cumbria",CB:"Cambridge",CF:"Cardiff",CH:"Chester/Wirral",CM:"Chelmsford",CO:"Colchester",CR:"Croydon",CT:"Kent Coast",CV:"Coventry",DA:"Dartford",DD:"Dundee",DE:"Derby",DG:"Dumfries",DH:"Durham",DL:"Darlington",DN:"Doncaster",DT:"Dorset",DY:"Dudley",E:"East London",EC:"Central London",EH:"Edinburgh",EN:"Enfield",EX:"Exeter",FK:"Falkirk",FY:"Blackpool",G:"Glasgow",GL:"Gloucester",GU:"Guildford",HA:"Harrow",HD:"Huddersfield",HG:"Harrogate",HP:"Hemel Hempstead",HR:"Hereford",HS:"Outer Hebrides",HU:"Hull",HX:"Halifax",IG:"Ilford",IP:"Ipswich",IV:"Inverness",KA:"Kilmarnock",KT:"Kingston",KW:"Caithness",KY:"Fife",L:"Liverpool",LA:"Lancaster",LD:"Brecon/Mid Wales",LE:"Leicester",LL:"Llandudno/N Wales",LN:"Lincoln",LS:"Leeds",LU:"Luton",M:"Manchester",ME:"Medway",MK:"Milton Keynes",ML:"Motherwell",N:"North London",NG:"Nottingham",NN:"Northampton",NP:"Newport/S Wales",NR:"Norwich",NW:"NW London",OL:"Oldham",OX:"Oxford",PA:"Paisley",PE:"Peterborough",PH:"Perth",PL:"Plymouth",PO:"Portsmouth",PR:"Preston",RG:"Reading",RH:"Redhill",RM:"Romford",S:"Sheffield",SA:"Swansea/W Wales",SE:"SE London",SG:"Stevenage",SK:"Stockport",SL:"Slough",SM:"Sutton",SN:"Swindon",SO:"Southampton",SP:"Salisbury",SR:"Sunderland",SS:"Southend",ST:"Stoke",SW:"SW London",SY:"Shrewsbury/Wales Border",TD:"Borders",TF:"Telford",TN:"Tunbridge Wells",TQ:"Torquay",TR:"Cornwall",TS:"Teesside",TW:"Twickenham",UB:"Uxbridge",W:"West London",WA:"Warrington",WC:"Central London",WD:"Watford",WF:"Wakefield",WN:"Wigan",WR:"Worcester",WS:"Walsall",WV:"Wolverhampton",YO:"York",ZE:"Shetland"
+};
+var WALES_PREFIXES = new Set(["CF","NP","SA","LD","LL","SY","HR","CH","SY"]);
+var SCOTLAND_PREFIXES = new Set(["AB","DD","DG","EH","FK","G","HS","IV","KA","KW","KY","ML","PA","PH","TD","ZE"]);
+function getPostcodePrefix(pc) { const m = pc.match(/^([A-Z]{1,2})/i); return m ? m[1].toUpperCase() : ""; }
+function getAreaName(pc) { const p = getPostcodePrefix(pc); return POSTCODE_AREA_NAMES[p] || p || pc; }
+function getCountry(pc) {
+  const p = getPostcodePrefix(pc);
+  if (SCOTLAND_PREFIXES.has(p)) return "Scotland";
+  if (WALES_PREFIXES.has(p)) return "Wales";
+  return "England";
+}
 function haversineMiles(lat1, lon1, lat2, lon2) {
   const R = 3958.8;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -885,107 +898,127 @@ async function handleScan(request, env) {
     if (entry.name) named.push(entry); else individuals.push(entry);
   }
   // Sort named by start date
+async function handleScan(request, env) {
+  const url = new URL(request.url);
+  const provided = url.searchParams.get("key") || "";
+  const secret = env.LOGS_PASSWORD || "";
+  if (!secret || provided !== secret) return new Response("Forbidden", { status: 403 });
+  const cookies = await loginToSite(env.FINDAMINYAN_EMAIL, env.FINDAMINYAN_PASSWORD);
+  if (!cookies) return new Response("Login failed", { status: 500, headers: { "Content-Type": "text/plain" } });
+  const searchStart = new Date(Date.UTC(2026, 0, 1));
+  const searchEnd   = new Date(Date.UTC(2026, 11, 31));
+  const data = await searchNearby(cookies, 52.5, -1.5, searchStart, searchEnd, 350);
+  const named = [], individuals = [];
+  for (const loc of data.timeLineData || []) {
+    if (loc.LocationType === 4) continue;
+    const n = parseInt(loc.NumberOfPeople) || 0;
+    if (n <= 0) continue;
+    const lat = parseFloat(loc.Latitude);
+    const lng = parseFloat(loc.Longitude);
+    if (!lat || !lng) continue;
+    const eStart = parseApiDate(loc.StartDate);
+    const eEnd   = parseApiDate(loc.EndDate);
+    if (!eStart || !eEnd || eEnd < searchStart || eStart > searchEnd) continue;
+    const entry = {
+      postcode: (loc.Postcode || "").replace(/&nbsp;/g, " ").trim(),
+      people: n, phone: (loc.Mobile || loc.Contact || "").trim(),
+      name: (loc.Name || "").trim(), lat, lng,
+      startDate: eStart < searchStart ? searchStart : eStart,
+      endDate:   eEnd > searchEnd ? searchEnd : eEnd
+    };
+    if (entry.name) named.push(entry); else individuals.push(entry);
+  }
   named.sort((a, b) => a.startDate - b.startDate);
-  // Cluster individuals (+ named) by 15 miles for potential minyans
-  const allForCluster = [...named, ...individuals];
-  const clusters = clusterEntriesScan(allForCluster, 15);
+  const clusters = clusterEntriesScan([...named, ...individuals], 15);
   const minyanClusters = [];
   for (const cluster of clusters) {
     if (cluster.length < 2) continue;
     const periods = findMinyanPeriodsScan(cluster, 10);
     if (!periods.length) continue;
-    const peak = Math.max(...periods.map((p) => p.peak));
-    const areas = [...new Set(cluster.map((e) => e.postcode.split(" ")[0]))].join(" / ");
-    minyanClusters.push({ areas, cluster, periods, peak });
+    const best = periods.reduce((a, b) => b.peak >= a.peak ? b : a);
+    const active = [...cluster].filter((e) => e.startDate <= best.end && e.endDate >= best.start).sort((a, b) => b.people - a.people);
+    const prefixCount = {};
+    for (const e of active) { const p = getPostcodePrefix(e.postcode); prefixCount[p] = (prefixCount[p] || 0) + e.people; }
+    const mainPrefix = Object.entries(prefixCount).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+    minyanClusters.push({ country: getCountry(mainPrefix), areaName: getAreaName(mainPrefix), active, best, allPeriods: periods });
   }
-  minyanClusters.sort((a, b) => b.peak - a.peak);
+  // Group by country
+  const byCountry = {};
+  for (const mc of minyanClusters) {
+    if (!byCountry[mc.country]) byCountry[mc.country] = [];
+    byCountry[mc.country].push(mc);
+  }
+  for (const arr of Object.values(byCountry)) arr.sort((a, b) => b.best.peak - a.best.peak);
 
-  // --- Section 1: Named/arranged ---
+  // Named section
   const namedRows = named.length === 0
-    ? `<tr><td colspan="4" style="padding:.6rem;color:#6b7280;text-align:center">None registered</td></tr>`
+    ? `<tr><td colspan="5" style="padding:.6rem;color:#6b7280;text-align:center">None registered</td></tr>`
     : named.map((e) => `<tr>
         <td style="padding:.4rem .7rem;font-weight:600">${escHtml(e.name)}</td>
         <td style="padding:.4rem .7rem">${escHtml(e.postcode)}</td>
+        <td style="padding:.4rem .7rem">${getAreaName(getPostcodePrefix(e.postcode))}, ${getCountry(e.postcode)}</td>
         <td style="padding:.4rem .7rem;white-space:nowrap">${shortDate(e.startDate)}&ndash;${shortDate(e.endDate)}</td>
         <td style="padding:.4rem .7rem">${e.phone ? escHtml(e.phone) : "&mdash;"}</td>
       </tr>`).join("");
 
-  // --- Section 2: Potential minyans ---
-  const potentialHTML = minyanClusters.length === 0
-    ? `<p style="color:#6b7280">No clusters of 10+ found.</p>`
-    : minyanClusters.map((mc, i) => {
-      // Best overlap period (longest or highest peak)
-      const best = mc.periods.reduce((a, b) => b.peak >= a.peak ? b : a);
-      // Only show entries present during best period
-      const active = [...mc.cluster]
-        .filter((e) => e.startDate <= best.end && e.endDate >= best.start)
-        .sort((a, b) => b.people - a.people);
-      const math = active.map((e) => e.people).join(" + ") + " = " + active.reduce((s, e) => s + e.people, 0) + " men";
-      const rows = active.map((e) => {
-        const contact = e.phone ? fmtPhone(e.phone) : "&mdash;";
-        const label = e.name ? `<b>${escHtml(e.name)}</b> &mdash; ` : "";
+  // Potential sections by country
+  let potentialHTML = "";
+  const totalClusters = minyanClusters.length;
+  for (const country of ["England","Wales","Scotland"]) {
+    const list = byCountry[country];
+    if (!list?.length) continue;
+    potentialHTML += `<h2 style="font-size:1rem;margin:1.4rem 0 .6rem;padding-bottom:.3rem;border-bottom:2px solid #1e3a5f">${country} &mdash; ${list.length} area${list.length===1?"":"s"}</h2>`;
+    for (const mc of list) {
+      const total = mc.active.reduce((s, e) => s + e.people, 0);
+      const math = mc.active.map((e) => e.people).join("+") + "=" + total;
+      const rows = mc.active.map((e) => {
+        const label = e.name ? `<b>${escHtml(e.name)}</b> — ` : "";
         return `<tr>
-          <td style="padding:.35rem .7rem">${label}${escHtml(e.postcode)}</td>
-          <td style="padding:.35rem .7rem;text-align:center">${e.people} ${e.people===1?"man":"men"}</td>
-          <td style="padding:.35rem .7rem;white-space:nowrap">${shortDate(e.startDate)}&ndash;${shortDate(e.endDate)}</td>
-          <td style="padding:.35rem .7rem">${contact}</td>
+          <td style="padding:.3rem .6rem">${label}${escHtml(e.postcode)}</td>
+          <td style="padding:.3rem .6rem;text-align:center">${e.people} ${e.people===1?"man":"men"}</td>
+          <td style="padding:.3rem .6rem;white-space:nowrap">${shortDate(e.startDate)}&ndash;${shortDate(e.endDate)}</td>
+          <td style="padding:.3rem .6rem">${e.phone ? escHtml(e.phone) : "&mdash;"}</td>
         </tr>`;
       }).join("");
-      const otherPeriods = mc.periods.length > 1
-        ? `<div style="margin-top:.5rem;font-size:.8rem;color:#6b7280">Other windows: `
-          + mc.periods.filter((p) => p !== best).map((p) => `${shortDate(p.start)}&ndash;${shortDate(p.end)} (${p.peak})`).join(", ")
-          + `</div>`
-        : "";
-      return `<div style="background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.1);padding:1.2rem;margin-bottom:1.5rem">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:.5rem;margin-bottom:.7rem">
-          <h3 style="margin:0;color:#1e3a5f;font-size:1rem">Area: ${escHtml(mc.areas)}</h3>
-          <span style="background:#dcfce7;border:1px solid #86efac;padding:.25rem .7rem;border-radius:20px;font-size:.9rem;font-weight:600">
-            ${shortDate(best.start)}&ndash;${shortDate(best.end)} &bull; ${best.peak} men
+      const extra = mc.allPeriods.length > 1
+        ? `<p style="margin:.4rem 0 0;font-size:.78rem;color:#6b7280">Other windows: ${mc.allPeriods.filter((p)=>p!==mc.best).map((p)=>`${shortDate(p.start)}&ndash;${shortDate(p.end)} (${p.peak})`).join(", ")}</p>` : "";
+      potentialHTML += `<div style="background:#fff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.1);padding:1rem;margin-bottom:1rem">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.3rem;margin-bottom:.6rem">
+          <span style="font-weight:700;color:#1e3a5f">${escHtml(mc.areaName)}</span>
+          <span style="background:#dcfce7;border:1px solid #86efac;padding:.18rem .6rem;border-radius:20px;font-size:.85rem">
+            <b>${total} men</b> &bull; ${shortDate(mc.best.start)}&ndash;${shortDate(mc.best.end)} &bull; ${math}
           </span>
         </div>
-        <table style="border-collapse:collapse;width:100%;font-size:.85rem">
+        <table style="border-collapse:collapse;width:100%;font-size:.83rem">
           <thead><tr style="background:#f0f4ff">
-            <th style="padding:.35rem .7rem;text-align:left">Location</th>
-            <th style="padding:.35rem .7rem;text-align:center">People</th>
-            <th style="padding:.35rem .7rem;text-align:left">Dates</th>
-            <th style="padding:.35rem .7rem;text-align:left">Contact</th>
+            <th style="padding:.3rem .6rem;text-align:left">Location</th>
+            <th style="padding:.3rem .6rem;text-align:center">Men</th>
+            <th style="padding:.3rem .6rem;text-align:left">Dates present</th>
+            <th style="padding:.3rem .6rem;text-align:left">Contact</th>
           </tr></thead>
           <tbody>${rows}</tbody>
-          <tfoot><tr style="background:#f9fafb">
-            <td colspan="4" style="padding:.4rem .7rem;font-size:.85rem;color:#1e3a5f;font-weight:600">Total during overlap: ${math}</td>
-          </tr></tfoot>
-        </table>
-        ${otherPeriods}
+        </table>${extra}
       </div>`;
-    }).join("");
+    }
+  }
+  if (!potentialHTML) potentialHTML = `<p style="color:#6b7280">No clusters of 10+ found in 2026.</p>`;
 
-  const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
+  const html = `<!DOCTYPE html><html lang="en"><head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>FindAMinyan &mdash; Minyan Scan 2026</title>
-  <style>body{font-family:sans-serif;padding:1.5rem;background:#f9fafb;color:#111;max-width:960px;margin:0 auto}
-  h2{font-size:1.1rem;margin:1.5rem 0 .7rem;padding-bottom:.3rem;border-bottom:2px solid #1e3a5f}</style>
-</head>
-<body>
-  <h1 style="font-size:1.4rem;margin-bottom:.3rem">FindAMinyan &mdash; Minyan Overview 2026</h1>
-  <p style="color:#6b7280;font-size:.82rem;margin-bottom:1.2rem">
-    ${named.length + individuals.length} entries &bull; 15-mile clusters &bull;
-    <a href="?key=${encodeURIComponent(provided)}">Refresh</a> &nbsp;|&nbsp; <a href="/logs?key=${encodeURIComponent(provided)}">Logs</a>
-  </p>
-
-  <h2>&#10003; Minyans Already Arranged (${named.length})</h2>
-  <table style="border-collapse:collapse;width:100%;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.1);border-radius:8px;overflow:hidden;font-size:.85rem">
+  <title>FindAMinyan &mdash; Minyan Overview 2026</title>
+  <style>body{font-family:sans-serif;padding:1.5rem;background:#f9fafb;color:#111;max-width:960px;margin:0 auto}</style>
+</head><body>
+  <h1 style="font-size:1.3rem;margin-bottom:.3rem">FindAMinyan &mdash; Minyan Overview 2026</h1>
+  <p style="color:#6b7280;font-size:.82rem;margin-bottom:1rem">${named.length+individuals.length} entries &bull; 15-mile clusters &bull; same-date overlap required &bull;
+    <a href="?key=${encodeURIComponent(provided)}">Refresh</a> | <a href="/logs?key=${encodeURIComponent(provided)}">Logs</a></p>
+  <h2 style="font-size:1rem;margin:0 0 .5rem;padding-bottom:.3rem;border-bottom:2px solid #1e3a5f">&#10003; Minyans Already Arranged (${named.length})</h2>
+  <table style="border-collapse:collapse;width:100%;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.1);border-radius:8px;overflow:hidden;font-size:.84rem;margin-bottom:1.5rem">
     <thead><tr style="background:#1e3a5f;color:#fff">
-      <th style="padding:.45rem .7rem;text-align:left">Name / Group</th>
-      <th style="padding:.45rem .7rem;text-align:left">Postcode</th>
-      <th style="padding:.45rem .7rem;text-align:left">Dates</th>
-      <th style="padding:.45rem .7rem;text-align:left">Contact</th>
-    </tr></thead>
-    <tbody>${namedRows}</tbody>
-  </table>
-
-  <h2>&#8987; Potential Minyans &mdash; ${minyanClusters.length} area${minyanClusters.length===1?"":"s"} where 10+ men overlap within 15 miles</h2>
+      <th style="padding:.4rem .7rem;text-align:left">Name</th><th style="padding:.4rem .7rem;text-align:left">Postcode</th>
+      <th style="padding:.4rem .7rem;text-align:left">Area</th><th style="padding:.4rem .7rem;text-align:left">Dates</th>
+      <th style="padding:.4rem .7rem;text-align:left">Contact</th></tr></thead>
+    <tbody>${namedRows}</tbody></table>
+  <h2 style="font-size:1rem;margin:0 0 .3rem;padding-bottom:.3rem;border-bottom:2px solid #1e3a5f">&#8987; Potential Minyans &mdash; ${totalClusters} area${totalClusters===1?"":"s"} where 10+ men on same dates within 15 miles</h2>
   ${potentialHTML}
 </body></html>`;
   return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
