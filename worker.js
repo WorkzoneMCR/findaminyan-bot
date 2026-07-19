@@ -862,7 +862,7 @@ async function handleScan(request, env) {
   const searchStart = new Date(Date.UTC(2026, 0, 1));
   const searchEnd   = new Date(Date.UTC(2026, 11, 31));
   const data = await searchNearby(cookies, 52.5, -1.5, searchStart, searchEnd, 350);
-  const allEntries = [];
+  const named = [], individuals = [];
   for (const loc of data.timeLineData || []) {
     if (loc.LocationType === 4) continue;
     const n = parseInt(loc.NumberOfPeople) || 0;
@@ -872,9 +872,8 @@ async function handleScan(request, env) {
     if (!lat || !lng) continue;
     const eStart = parseApiDate(loc.StartDate);
     const eEnd   = parseApiDate(loc.EndDate);
-    if (!eStart || !eEnd) continue;
-    if (eEnd < searchStart || eStart > searchEnd) continue;
-    allEntries.push({
+    if (!eStart || !eEnd || eEnd < searchStart || eStart > searchEnd) continue;
+    const entry = {
       postcode: (loc.Postcode || "").replace(/&nbsp;/g, " ").trim(),
       people: n,
       phone: (loc.Mobile || loc.Contact || "").trim(),
@@ -882,66 +881,112 @@ async function handleScan(request, env) {
       lat, lng,
       startDate: eStart < searchStart ? searchStart : eStart,
       endDate:   eEnd > searchEnd ? searchEnd : eEnd
-    });
+    };
+    if (entry.name) named.push(entry); else individuals.push(entry);
   }
-  const clusters = clusterEntriesScan(allEntries, 15);
+  // Sort named by start date
+  named.sort((a, b) => a.startDate - b.startDate);
+  // Cluster individuals (+ named) by 15 miles for potential minyans
+  const allForCluster = [...named, ...individuals];
+  const clusters = clusterEntriesScan(allForCluster, 15);
   const minyanClusters = [];
   for (const cluster of clusters) {
+    if (cluster.length < 2) continue;
     const periods = findMinyanPeriodsScan(cluster, 10);
-    if (periods.length > 0) {
-      const peak = Math.max(...periods.map((p) => p.peak));
-      const centre = [...cluster].sort((a, b) => b.people - a.people)[0].postcode;
-      minyanClusters.push({ centre, cluster, periods, peak });
-    }
+    if (!periods.length) continue;
+    const peak = Math.max(...periods.map((p) => p.peak));
+    const areas = [...new Set(cluster.map((e) => e.postcode.split(" ")[0]))].join(" / ");
+    minyanClusters.push({ areas, cluster, periods, peak });
   }
   minyanClusters.sort((a, b) => b.peak - a.peak);
-  const sections = minyanClusters.length === 0
-    ? `<p style="color:#6b7280">No clusters of 10+ people found in 2026.</p>`
+
+  // --- Section 1: Named/arranged ---
+  const namedRows = named.length === 0
+    ? `<tr><td colspan="4" style="padding:.6rem;color:#6b7280;text-align:center">None registered</td></tr>`
+    : named.map((e) => `<tr>
+        <td style="padding:.4rem .7rem;font-weight:600">${escHtml(e.name)}</td>
+        <td style="padding:.4rem .7rem">${escHtml(e.postcode)}</td>
+        <td style="padding:.4rem .7rem;white-space:nowrap">${shortDate(e.startDate)}&ndash;${shortDate(e.endDate)}</td>
+        <td style="padding:.4rem .7rem">${e.phone ? escHtml(e.phone) : "&mdash;"}</td>
+      </tr>`).join("");
+
+  // --- Section 2: Potential minyans ---
+  const potentialHTML = minyanClusters.length === 0
+    ? `<p style="color:#6b7280">No clusters of 10+ found.</p>`
     : minyanClusters.map((mc, i) => {
-      const entryRows = [...mc.cluster]
-        .sort((a, b) => b.people - a.people)
-        .map((e) => {
-          const name = e.name ? ` <span style="color:#6b7280">(${escHtml(e.name)})</span>` : "";
-          return `<tr>
-            <td style="padding:.35rem .6rem">${escHtml(e.postcode)}</td>
-            <td style="padding:.35rem .6rem">${e.people} ${e.people === 1 ? "man" : "men"}${name}</td>
-            <td style="padding:.35rem .6rem;white-space:nowrap">${shortDate(e.startDate)}&ndash;${shortDate(e.endDate)}</td>
-            <td style="padding:.35rem .6rem">${e.phone ? escHtml(e.phone) : "&mdash;"}</td>
-          </tr>`;
-        }).join("");
-      const pills = mc.periods.map((p) =>
-        `<span style="background:#dcfce7;border:1px solid #86efac;padding:.2rem .55rem;border-radius:20px;margin:.15rem;display:inline-block;font-size:.85rem">
-          ${shortDate(p.start)}&ndash;${shortDate(p.end)} &bull; <b>${p.peak} people</b>
-        </span>`
-      ).join("");
+      // Best overlap period (longest or highest peak)
+      const best = mc.periods.reduce((a, b) => b.peak >= a.peak ? b : a);
+      // Only show entries present during best period
+      const active = [...mc.cluster]
+        .filter((e) => e.startDate <= best.end && e.endDate >= best.start)
+        .sort((a, b) => b.people - a.people);
+      const math = active.map((e) => e.people).join(" + ") + " = " + active.reduce((s, e) => s + e.people, 0) + " men";
+      const rows = active.map((e) => {
+        const contact = e.phone ? fmtPhone(e.phone) : "&mdash;";
+        const label = e.name ? `<b>${escHtml(e.name)}</b> &mdash; ` : "";
+        return `<tr>
+          <td style="padding:.35rem .7rem">${label}${escHtml(e.postcode)}</td>
+          <td style="padding:.35rem .7rem;text-align:center">${e.people} ${e.people===1?"man":"men"}</td>
+          <td style="padding:.35rem .7rem;white-space:nowrap">${shortDate(e.startDate)}&ndash;${shortDate(e.endDate)}</td>
+          <td style="padding:.35rem .7rem">${contact}</td>
+        </tr>`;
+      }).join("");
+      const otherPeriods = mc.periods.length > 1
+        ? `<div style="margin-top:.5rem;font-size:.8rem;color:#6b7280">Other windows: `
+          + mc.periods.filter((p) => p !== best).map((p) => `${shortDate(p.start)}&ndash;${shortDate(p.end)} (${p.peak})`).join(", ")
+          + `</div>`
+        : "";
       return `<div style="background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.1);padding:1.2rem;margin-bottom:1.5rem">
-        <h3 style="margin:0 0 .6rem;color:#1e3a5f">Cluster ${i + 1} &mdash; around ${escHtml(mc.centre)} &mdash; peak ${mc.peak} people</h3>
-        <div style="margin-bottom:.8rem">${pills}</div>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:.5rem;margin-bottom:.7rem">
+          <h3 style="margin:0;color:#1e3a5f;font-size:1rem">Area: ${escHtml(mc.areas)}</h3>
+          <span style="background:#dcfce7;border:1px solid #86efac;padding:.25rem .7rem;border-radius:20px;font-size:.9rem;font-weight:600">
+            ${shortDate(best.start)}&ndash;${shortDate(best.end)} &bull; ${best.peak} men
+          </span>
+        </div>
         <table style="border-collapse:collapse;width:100%;font-size:.85rem">
           <thead><tr style="background:#f0f4ff">
-            <th style="padding:.35rem .6rem;text-align:left">Postcode</th>
-            <th style="padding:.35rem .6rem;text-align:left">People</th>
-            <th style="padding:.35rem .6rem;text-align:left">Dates (2026)</th>
-            <th style="padding:.35rem .6rem;text-align:left">Contact</th>
+            <th style="padding:.35rem .7rem;text-align:left">Location</th>
+            <th style="padding:.35rem .7rem;text-align:center">People</th>
+            <th style="padding:.35rem .7rem;text-align:left">Dates</th>
+            <th style="padding:.35rem .7rem;text-align:left">Contact</th>
           </tr></thead>
-          <tbody>${entryRows}</tbody>
+          <tbody>${rows}</tbody>
+          <tfoot><tr style="background:#f9fafb">
+            <td colspan="4" style="padding:.4rem .7rem;font-size:.85rem;color:#1e3a5f;font-weight:600">Total during overlap: ${math}</td>
+          </tr></tfoot>
         </table>
+        ${otherPeriods}
       </div>`;
     }).join("");
+
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>FindAMinyan &mdash; Minyan Scan 2026</title>
-  <style>body{font-family:sans-serif;padding:1.5rem;background:#f9fafb;color:#111;max-width:900px;margin:0 auto}</style>
+  <style>body{font-family:sans-serif;padding:1.5rem;background:#f9fafb;color:#111;max-width:960px;margin:0 auto}
+  h2{font-size:1.1rem;margin:1.5rem 0 .7rem;padding-bottom:.3rem;border-bottom:2px solid #1e3a5f}</style>
 </head>
 <body>
-  <h1 style="font-size:1.4rem;margin-bottom:.4rem">FindAMinyan &mdash; Potential Minyans 2026</h1>
-  <p style="color:#6b7280;font-size:.85rem;margin-bottom:1.5rem">
-    ${allEntries.length} entries scanned &bull; ${minyanClusters.length} cluster${minyanClusters.length === 1 ? "" : "s"} of 10+ found &bull; 15-mile radius &bull;
+  <h1 style="font-size:1.4rem;margin-bottom:.3rem">FindAMinyan &mdash; Minyan Overview 2026</h1>
+  <p style="color:#6b7280;font-size:.82rem;margin-bottom:1.2rem">
+    ${named.length + individuals.length} entries &bull; 15-mile clusters &bull;
     <a href="?key=${encodeURIComponent(provided)}">Refresh</a> &nbsp;|&nbsp; <a href="/logs?key=${encodeURIComponent(provided)}">Logs</a>
   </p>
-  ${sections}
+
+  <h2>&#10003; Minyans Already Arranged (${named.length})</h2>
+  <table style="border-collapse:collapse;width:100%;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.1);border-radius:8px;overflow:hidden;font-size:.85rem">
+    <thead><tr style="background:#1e3a5f;color:#fff">
+      <th style="padding:.45rem .7rem;text-align:left">Name / Group</th>
+      <th style="padding:.45rem .7rem;text-align:left">Postcode</th>
+      <th style="padding:.45rem .7rem;text-align:left">Dates</th>
+      <th style="padding:.45rem .7rem;text-align:left">Contact</th>
+    </tr></thead>
+    <tbody>${namedRows}</tbody>
+  </table>
+
+  <h2>&#8987; Potential Minyans &mdash; ${minyanClusters.length} area${minyanClusters.length===1?"":"s"} where 10+ men overlap within 15 miles</h2>
+  ${potentialHTML}
 </body></html>`;
   return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
 }
