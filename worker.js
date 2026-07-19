@@ -40,6 +40,9 @@ var worker_default = {
     if (pathname === "/apitest") {
       return handleApiTest(request, env);
     }
+    if (pathname === "/scan") {
+      return handleScan(request, env);
+    }
     return new Response("Not Found", { status: 404 });
   }
 };
@@ -794,6 +797,155 @@ async function handleReview(request, env) {
   return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
 }
 __name(handleReview, "handleReview");
+function haversineMiles(lat1, lon1, lat2, lon2) {
+  const R = 3958.8;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.asin(Math.sqrt(a));
+}
+__name(haversineMiles, "haversineMiles");
+function clusterEntriesScan(entries, maxMiles) {
+  const n = entries.length;
+  const parent = Array.from({ length: n }, (_, i) => i);
+  function find(x) { return parent[x] === x ? x : (parent[x] = find(parent[x])); }
+  function union(x, y) { parent[find(x)] = find(y); }
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      if (haversineMiles(entries[i].lat, entries[i].lng, entries[j].lat, entries[j].lng) <= maxMiles) union(i, j);
+    }
+  }
+  const map = new Map();
+  for (let i = 0; i < n; i++) {
+    const r = find(i);
+    if (!map.has(r)) map.set(r, []);
+    map.get(r).push(entries[i]);
+  }
+  return [...map.values()];
+}
+__name(clusterEntriesScan, "clusterEntriesScan");
+function findMinyanPeriodsScan(cluster, minPeople) {
+  let minDate = null, maxDate = null;
+  for (const e of cluster) {
+    if (!minDate || e.startDate < minDate) minDate = e.startDate;
+    if (!maxDate || e.endDate > maxDate) maxDate = e.endDate;
+  }
+  if (!minDate || !maxDate) return [];
+  const MS_DAY = 86400000;
+  const periods = [];
+  let inPeriod = false, periodStart = null, periodPeak = 0;
+  for (let t = minDate.getTime(); t <= maxDate.getTime(); t += MS_DAY) {
+    const day = new Date(t);
+    let count = 0;
+    for (const e of cluster) {
+      if (e.startDate <= day && day <= e.endDate) count += e.people;
+    }
+    if (count >= minPeople) {
+      if (!inPeriod) { inPeriod = true; periodStart = new Date(t); periodPeak = count; }
+      else periodPeak = Math.max(periodPeak, count);
+    } else if (inPeriod) {
+      periods.push({ start: periodStart, end: new Date(t - MS_DAY), peak: periodPeak });
+      inPeriod = false; periodPeak = 0;
+    }
+  }
+  if (inPeriod) periods.push({ start: periodStart, end: new Date(maxDate), peak: periodPeak });
+  return periods;
+}
+__name(findMinyanPeriodsScan, "findMinyanPeriodsScan");
+async function handleScan(request, env) {
+  const url = new URL(request.url);
+  const provided = url.searchParams.get("key") || "";
+  const secret = env.LOGS_PASSWORD || "";
+  if (!secret || provided !== secret) return new Response("Forbidden", { status: 403 });
+  const cookies = await loginToSite(env.FINDAMINYAN_EMAIL, env.FINDAMINYAN_PASSWORD);
+  if (!cookies) return new Response("Login failed", { status: 500, headers: { "Content-Type": "text/plain" } });
+  const searchStart = new Date(Date.UTC(2026, 0, 1));
+  const searchEnd   = new Date(Date.UTC(2026, 11, 31));
+  const data = await searchNearby(cookies, 52.5, -1.5, searchStart, searchEnd, 350);
+  const allEntries = [];
+  for (const loc of data.timeLineData || []) {
+    if (loc.LocationType === 4) continue;
+    const n = parseInt(loc.NumberOfPeople) || 0;
+    if (n <= 0) continue;
+    const lat = parseFloat(loc.Latitude);
+    const lng = parseFloat(loc.Longitude);
+    if (!lat || !lng) continue;
+    const eStart = parseApiDate(loc.StartDate);
+    const eEnd   = parseApiDate(loc.EndDate);
+    if (!eStart || !eEnd) continue;
+    if (eEnd < searchStart || eStart > searchEnd) continue;
+    allEntries.push({
+      postcode: (loc.Postcode || "").replace(/&nbsp;/g, " ").trim(),
+      people: n,
+      phone: (loc.Mobile || loc.Contact || "").trim(),
+      name: (loc.Name || "").trim(),
+      lat, lng,
+      startDate: eStart < searchStart ? searchStart : eStart,
+      endDate:   eEnd > searchEnd ? searchEnd : eEnd
+    });
+  }
+  const clusters = clusterEntriesScan(allEntries, 15);
+  const minyanClusters = [];
+  for (const cluster of clusters) {
+    const periods = findMinyanPeriodsScan(cluster, 10);
+    if (periods.length > 0) {
+      const peak = Math.max(...periods.map((p) => p.peak));
+      const centre = [...cluster].sort((a, b) => b.people - a.people)[0].postcode;
+      minyanClusters.push({ centre, cluster, periods, peak });
+    }
+  }
+  minyanClusters.sort((a, b) => b.peak - a.peak);
+  const sections = minyanClusters.length === 0
+    ? `<p style="color:#6b7280">No clusters of 10+ people found in 2026.</p>`
+    : minyanClusters.map((mc, i) => {
+      const entryRows = [...mc.cluster]
+        .sort((a, b) => b.people - a.people)
+        .map((e) => {
+          const name = e.name ? ` <span style="color:#6b7280">(${escHtml(e.name)})</span>` : "";
+          return `<tr>
+            <td style="padding:.35rem .6rem">${escHtml(e.postcode)}</td>
+            <td style="padding:.35rem .6rem">${e.people} ${e.people === 1 ? "man" : "men"}${name}</td>
+            <td style="padding:.35rem .6rem;white-space:nowrap">${shortDate(e.startDate)}&ndash;${shortDate(e.endDate)}</td>
+            <td style="padding:.35rem .6rem">${e.phone ? escHtml(e.phone) : "&mdash;"}</td>
+          </tr>`;
+        }).join("");
+      const pills = mc.periods.map((p) =>
+        `<span style="background:#dcfce7;border:1px solid #86efac;padding:.2rem .55rem;border-radius:20px;margin:.15rem;display:inline-block;font-size:.85rem">
+          ${shortDate(p.start)}&ndash;${shortDate(p.end)} &bull; <b>${p.peak} people</b>
+        </span>`
+      ).join("");
+      return `<div style="background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.1);padding:1.2rem;margin-bottom:1.5rem">
+        <h3 style="margin:0 0 .6rem;color:#1e3a5f">Cluster ${i + 1} &mdash; around ${escHtml(mc.centre)} &mdash; peak ${mc.peak} people</h3>
+        <div style="margin-bottom:.8rem">${pills}</div>
+        <table style="border-collapse:collapse;width:100%;font-size:.85rem">
+          <thead><tr style="background:#f0f4ff">
+            <th style="padding:.35rem .6rem;text-align:left">Postcode</th>
+            <th style="padding:.35rem .6rem;text-align:left">People</th>
+            <th style="padding:.35rem .6rem;text-align:left">Dates (2026)</th>
+            <th style="padding:.35rem .6rem;text-align:left">Contact</th>
+          </tr></thead>
+          <tbody>${entryRows}</tbody>
+        </table>
+      </div>`;
+    }).join("");
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>FindAMinyan &mdash; Minyan Scan 2026</title>
+  <style>body{font-family:sans-serif;padding:1.5rem;background:#f9fafb;color:#111;max-width:900px;margin:0 auto}</style>
+</head>
+<body>
+  <h1 style="font-size:1.4rem;margin-bottom:.4rem">FindAMinyan &mdash; Potential Minyans 2026</h1>
+  <p style="color:#6b7280;font-size:.85rem;margin-bottom:1.5rem">
+    ${allEntries.length} entries scanned &bull; ${minyanClusters.length} cluster${minyanClusters.length === 1 ? "" : "s"} of 10+ found &bull; 15-mile radius &bull;
+    <a href="?key=${encodeURIComponent(provided)}">Refresh</a> &nbsp;|&nbsp; <a href="/logs?key=${encodeURIComponent(provided)}">Logs</a>
+  </p>
+  ${sections}
+</body></html>`;
+  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+}
+__name(handleScan, "handleScan");
 async function handleApiTest(request, env) {
   const url = new URL(request.url);
   const provided = url.searchParams.get("key") || "";
