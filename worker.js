@@ -888,39 +888,6 @@ async function handleScan(request, env) {
     if (!eStart || !eEnd || eEnd < searchStart || eStart > searchEnd) continue;
     const entry = {
       postcode: (loc.Postcode || "").replace(/&nbsp;/g, " ").trim(),
-      people: n,
-      phone: (loc.Mobile || loc.Contact || "").trim(),
-      name: (loc.Name || "").trim(),
-      lat, lng,
-      startDate: eStart < searchStart ? searchStart : eStart,
-      endDate:   eEnd > searchEnd ? searchEnd : eEnd
-    };
-    if (entry.name) named.push(entry); else individuals.push(entry);
-  }
-  // Sort named by start date
-async function handleScan(request, env) {
-  const url = new URL(request.url);
-  const provided = url.searchParams.get("key") || "";
-  const secret = env.LOGS_PASSWORD || "";
-  if (!secret || provided !== secret) return new Response("Forbidden", { status: 403 });
-  const cookies = await loginToSite(env.FINDAMINYAN_EMAIL, env.FINDAMINYAN_PASSWORD);
-  if (!cookies) return new Response("Login failed", { status: 500, headers: { "Content-Type": "text/plain" } });
-  const searchStart = new Date(Date.UTC(2026, 0, 1));
-  const searchEnd   = new Date(Date.UTC(2026, 11, 31));
-  const data = await searchNearby(cookies, 52.5, -1.5, searchStart, searchEnd, 350);
-  const named = [], individuals = [];
-  for (const loc of data.timeLineData || []) {
-    if (loc.LocationType === 4) continue;
-    const n = parseInt(loc.NumberOfPeople) || 0;
-    if (n <= 0) continue;
-    const lat = parseFloat(loc.Latitude);
-    const lng = parseFloat(loc.Longitude);
-    if (!lat || !lng) continue;
-    const eStart = parseApiDate(loc.StartDate);
-    const eEnd   = parseApiDate(loc.EndDate);
-    if (!eStart || !eEnd || eEnd < searchStart || eStart > searchEnd) continue;
-    const entry = {
-      postcode: (loc.Postcode || "").replace(/&nbsp;/g, " ").trim(),
       people: n, phone: (loc.Mobile || loc.Contact || "").trim(),
       name: (loc.Name || "").trim(), lat, lng,
       startDate: eStart < searchStart ? searchStart : eStart,
